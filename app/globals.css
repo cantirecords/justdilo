@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 7%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;
+    --border: 0 0% 90%;
+    --accent: 0 0% 7%;
+  }
+  .dark {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 60%;
+    --border: 0 0% 16%;
+    --accent: 0 0% 98%;
+  }
+  html, body { height: 100%; }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+}
+
+@keyframes burst-particle {
+  0%   { transform: rotate(var(--a)) translateX(0px) scale(1.2); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: rotate(var(--a)) translateX(22px) scale(0); opacity: 0; }
+}
+@keyframes burst-ring {
+  0%   { transform: scale(0.6); opacity: 0.7; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@keyframes check-pop {
+  0%   { transform: scale(0.7); }
+  55%  { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+/* Idle: slow breathing halo — invites a tap */
+@keyframes micBreathe {
+  0%, 100% { transform: scale(1.10); opacity: 0.13; }
+  45%       { transform: scale(1.26); opacity: 0.05; }
+}
+
+/* Recording: sonar ripple rings expanding outward */
+@keyframes micRipple {
+  0%   { transform: scale(1);   opacity: 0.45; }
+  100% { transform: scale(2.3); opacity: 0; }
+}
+
+/* Processing states */
+@keyframes waveBar {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+@keyframes dotBounce {
+  0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeSlideOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(4px); }
+}
+.status-enter { animation: fadeSlideIn 0.3s ease forwards; }
+.status-exit  { animation: fadeSlideOut 0.3s ease forwards; }

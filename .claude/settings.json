@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{redirect_url}\\\\n\" http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/login)",
+      "Bash(vercel --version)",
+      "Bash(vercel env *)",
+      "Bash(vercel logs *)",
+      "Bash(vercel inspect *)",
+      "Bash(node -e \"const l = require\\('/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/package-lock.json'\\); console.log\\(l.packages['node_modules/next']?.version\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://justdilo-jvb6bhdy9-cantirecords-projects.vercel.app/login)",
+      "Bash(npx tsc *)",
+      "Bash(convert --version)",
+      "Bash(npm list *)",
+      "Bash(node scripts/gen-icons.mjs)",
+      "Bash(vercel)",
+      "Bash(vercel --prod)",
+      "Bash(npx vercel *)",
+      "Read(//private/tmp/claude-502/-Users-cantirecords-Documents-CLAUDE-CODE-ANTIGRAVITY-JUSTDILO.APP/09189de3-150c-47b6-8a36-0a3a06a6700f/tasks/**)",
+      "Bash(node -e ' *)",
+      "Bash(curl -s 'https://pwdwkawexigebongqong.supabase.co/rest/v1/tasks?select=count&limit=1' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3ZHdrYXdleGlnZWJvbmdxb25nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNTE2MzEsImV4cCI6MjA5MjgyNzYzMX0.aZ6lX____RoY59Sc98ZgQzvGFZUMUu2mznE_U_YsQc0' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3ZHdrYXdleGlnZWJvbmdxb25nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNTE2MzEsImV4cCI6MjA5MjgyNzYzMX0.aZ6lX____RoY59Sc98ZgQzvGFZUMUu2mznE_U_YsQc0')",
+      "Bash(curl -s 'https://pwdwkawexigebongqong.supabase.co/rest/v1/captures?select=count&limit=1' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3ZHdrYXdleGlnZWJvbmdxb25nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNTE2MzEsImV4cCI6MjA5MjgyNzYzMX0.aZ6lX____RoY59Sc98ZgQzvGFZUMUu2mznE_U_YsQc0' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3ZHdrYXdleGlnZWJvbmdxb25nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyNTE2MzEsImV4cCI6MjA5MjgyNzYzMX0.aZ6lX____RoY59Sc98ZgQzvGFZUMUu2mznE_U_YsQc0')",
+      "Bash(vercel ls *)",
+      "Bash(vercel domains *)",
+      "Bash(node -e \"const m = require\\('msedge-tts'\\); console.log\\(Object.keys\\(m\\)\\)\")",
+      "Bash(node -e \"const {MsEdgeTTS,OUTPUT_FORMAT}=require\\('msedge-tts'\\); const t=new MsEdgeTTS\\(\\); console.log\\(Object.getOwnPropertyNames\\(Object.getPrototypeOf\\(t\\)\\)\\)\")",
+      "Bash(git init *)",
+      "Bash(git commit -m ' *)"
+    ],
+    "additionalDirectories": [
+      "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/public"
+    ]
+  }
+}
