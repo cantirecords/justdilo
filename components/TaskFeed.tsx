@@ -16,8 +16,7 @@ import TaskEditModal from "./TaskEditModal";
 import ProgressRing from "./ProgressRing";
 import type { Task } from "@/lib/types";
 
-type TopView = "view" | "stats";
-type SubView = "list" | "board" | "focus";
+type SubView = "list" | "board" | "focus" | "stats";
 type Bucket = "Overdue" | "Today" | "Tomorrow" | "Upcoming" | "Someday";
 
 type Props = {
@@ -600,70 +599,38 @@ const SUB_VIEWS: { id: SubView; label: string; icon: React.ElementType }[] = [
   { id: "list",  label: "List",  icon: LayoutList },
   { id: "board", label: "Board", icon: Kanban },
   { id: "focus", label: "Focus", icon: Crosshair },
+  { id: "stats", label: "Stats", icon: BarChart2 },
 ];
 
 export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete }: Props) {
-  const [topView, setTopView] = useState<TopView>("view");
   const [subView, setSubView] = useState<SubView>("list");
 
   if (tasks.length === 0) return <SmartEmpty />;
 
-  const activeTasks = tasks.filter((t) => !t.completed);
-
   return (
     <div>
-      {/* Top-level nav: View | Stats */}
-      <div className="flex items-center gap-1 mb-4 bg-muted/40 rounded-2xl p-1 w-fit">
-        <button
-          onClick={() => setTopView("view")}
-          className={cn(
-            "flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all duration-150",
-            topView === "view"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <LayoutList className="w-3.5 h-3.5" />
-          View
-        </button>
-        <button
-          onClick={() => setTopView("stats")}
-          className={cn(
-            "flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all duration-150",
-            topView === "stats"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <BarChart2 className="w-3.5 h-3.5" />
-          Stats
-        </button>
+      {/* Single-row nav */}
+      <div className="flex items-center gap-1 mb-5 bg-muted/40 rounded-2xl p-1">
+        {SUB_VIEWS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setSubView(id)}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs font-medium transition-all duration-150",
+              subView === id
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Sub-view tabs (only when View is active) */}
-      {topView === "view" && (
-        <div className="flex items-center gap-1 mb-5 px-0.5">
-          {SUB_VIEWS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setSubView(id)}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-150 border",
-                subView === id
-                  ? "bg-foreground text-background border-foreground"
-                  : "text-muted-foreground border-transparent hover:border-border hover:text-foreground",
-              )}
-            >
-              <Icon className="w-3 h-3" />
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+      {subView === "stats" && <StatsCard tasks={tasks} />}
 
-      {topView === "stats" && <StatsCard tasks={tasks} />}
-
-      {topView === "view" && subView === "list" && (
+      {subView === "list" && (
         <ListView
           tasks={tasks}
           onUpdate={onUpdate}
@@ -673,11 +640,11 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
           onBatchDelete={onBatchDelete}
         />
       )}
-      {topView === "view" && subView === "board" && (
-        <BoardView tasks={activeTasks} onUpdate={onUpdate} onDelete={onDelete} onAddTask={onAddTask} />
+      {subView === "board" && (
+        <BoardView tasks={tasks.filter((t) => !t.completed)} onUpdate={onUpdate} onDelete={onDelete} onAddTask={onAddTask} />
       )}
-      {topView === "view" && subView === "focus" && (
-        <FocusView tasks={activeTasks} onUpdate={onUpdate} onDelete={onDelete} />
+      {subView === "focus" && (
+        <FocusView tasks={tasks.filter((t) => !t.completed)} onUpdate={onUpdate} onDelete={onDelete} />
       )}
     </div>
   );

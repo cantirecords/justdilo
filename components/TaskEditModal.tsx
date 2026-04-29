@@ -29,7 +29,7 @@ const RECURRING: { value: Task["recurring_type"]; label: string }[] = [
 function parseDate(due: string | null) {
   if (!due) return { date: "", time: "" };
   const d = parseISO(due);
-  const hasTime = d.getHours() !== 9 || d.getMinutes() !== 0;
+  const hasTime = !(d.getHours() === 23 && d.getMinutes() === 59);
   return {
     date: format(d, "yyyy-MM-dd"),
     time: hasTime ? format(d, "HH:mm") : "",
@@ -39,7 +39,7 @@ function parseDate(due: string | null) {
 function buildDueDate(date: string, time: string): string | null {
   if (!date) return null;
   const [year, month, day] = date.split("-").map(Number);
-  const [hours, minutes] = time ? time.split(":").map(Number) : [9, 0];
+  const [hours, minutes] = time ? time.split(":").map(Number) : [23, 59];
   return new Date(year, month - 1, day, hours, minutes).toISOString();
 }
 
@@ -121,7 +121,7 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full bg-muted/30 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-foreground/20 border border-transparent focus:border-foreground/10"
+                className="w-full bg-muted/30 rounded-xl px-3 py-2.5 text-sm text-foreground outline-none focus:ring-1 focus:ring-foreground/20 border border-transparent focus:border-foreground/10 [color-scheme:light] dark:[color-scheme:dark]"
               />
             </div>
             <div className="flex-1">
@@ -130,7 +130,7 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
                 type="time"
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
-                className="w-full bg-muted/30 rounded-xl px-3 py-2.5 text-sm outline-none focus:ring-1 focus:ring-foreground/20 border border-transparent focus:border-foreground/10"
+                className="w-full bg-muted/30 rounded-xl px-3 py-2.5 text-sm text-foreground outline-none focus:ring-1 focus:ring-foreground/20 border border-transparent focus:border-foreground/10 [color-scheme:light] dark:[color-scheme:dark]"
               />
             </div>
           </div>
