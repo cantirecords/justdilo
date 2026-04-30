@@ -374,3 +374,78 @@ export function resolveDue(
 
   return null;
 }
+
+// ── Ideas ─────────────────────────────────────────────────────────────────────
+
+const IDEA_SYSTEM = `You are an expert note-taker and strategist. Take a raw brain dump and structure it into a clear, readable note.
+
+━━ RULES ━━
+- Preserve the original language. Spanish → Spanish. English → English. Never translate.
+- Extract a punchy title (5-8 words max).
+- Write a 1-2 sentence summary (TL;DR).
+- Organize content into logical sections with short headings and bullet points.
+- Extract key_insights: the most important/surprising/actionable points (max 4).
+- Extract action_items: concrete things the person should do (max 6).
+- Assign 2-4 short lowercase tags.
+- NEVER add information not present in the input — only organize and clarify.
+- If the input is very short (<20 words), skip sections[] and just return title, summary, key_insights.
+
+━━ RESPONSE FORMAT ━━
+Return ONLY valid JSON:
+{
+  "title": "Short punchy title",
+  "summary": "1-2 sentence TL;DR",
+  "sections": [
+    { "heading": "Section name", "points": ["point 1", "point 2"] }
+  ],
+  "key_insights": ["Most important insight"],
+  "action_items": ["Do this specific thing"],
+  "tags": ["business", "product"]
+}`;
+
+const IdeaSchema = z.object({
+  title: z.string().default("Untitled Idea"),
+  summary: z.string().default(""),
+  sections: z.array(z.object({
+    heading: z.string(),
+    points: z.array(z.string()),
+  })).default([]),
+  key_insights: z.array(z.string()).default([]),
+  action_items: z.array(z.string()).default([]),
+  tags: z.array(z.string()).default([]),
+});
+export type IdeaStructure = z.infer<typeof IdeaSchema>;
+
+export async function structureIdea(text: string): Promise<IdeaStructure> {
+  const messages = [
+    { role: "system" as const, content: IDEA_SYSTEM },
+    { role: "user" as const, content: text },
+  ];
+
+  let raw = "{}";
+  try {
+    if (provider === "groq" && groq) {
+      raw = await callGroq(messages);
+    } else if (openai) {
+      raw = await callOpenAI(messages);
+    } else {
+      throw new Error("No AI provider configured");
+    }
+  } catch (primaryErr) {
+    try {
+      if (provider === "groq" && openai) raw = await callOpenAI(messages);
+      else if (groq) raw = await callGroq(messages);
+      else throw primaryErr;
+    } catch {
+      throw primaryErr;
+    }
+  }
+
+  console.log("[ai] structureIdea raw length:", raw.length);
+  const parsed = IdeaSchema.safeParse(safeParseJSON(raw));
+  if (!parsed.success) {
+    console.error("[ai] structureIdea validation failed:", parsed.error.issues);
+    return { title: "Idea", summary: text.slice(0, 120), sections: [], key_insights: [], action_items: [], tags: [] };
+  }
+  return parsed.data;
+}

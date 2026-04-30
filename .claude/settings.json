@@ -27,7 +27,12 @@
       "Bash(node -e \"const m = require\\('msedge-tts'\\); console.log\\(Object.keys\\(m\\)\\)\")",
       "Bash(node -e \"const {MsEdgeTTS,OUTPUT_FORMAT}=require\\('msedge-tts'\\); const t=new MsEdgeTTS\\(\\); console.log\\(Object.getOwnPropertyNames\\(Object.getPrototypeOf\\(t\\)\\)\\)\")",
       "Bash(git init *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(vercel --yes)",
+      "Bash(vercel --prod --yes)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(vercel deploy *)"
     ],
     "additionalDirectories": [
       "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/public"

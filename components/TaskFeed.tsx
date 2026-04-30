@@ -2,20 +2,21 @@
 import { useMemo, useRef, useState } from "react";
 import { isToday, isTomorrow, isPast, parseISO, format } from "date-fns";
 import {
-  LayoutList, Kanban, Crosshair, BarChart2,
+  LayoutList, Kanban, Crosshair, BarChart2, Lightbulb,
   Trash2, Clock, ChevronDown, Plus, Check, AlertTriangle, Pencil,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import CheckButton from "./CheckButton";
 import RescheduleMenu from "./RescheduleMenu";
 import StatsCard from "./StatsCard";
+import IdeasFeed from "./IdeasFeed";
 import { cn } from "@/lib/utils";
 import TaskCard from "./TaskCard";
 import TaskEditModal from "./TaskEditModal";
 import ProgressRing from "./ProgressRing";
 import type { Task } from "@/lib/types";
 
-type SubView = "list" | "board" | "focus" | "stats";
+type SubView = "list" | "board" | "focus" | "ideas" | "stats";
 type Bucket = "Overdue" | "Today" | "Tomorrow" | "Upcoming" | "Someday";
 
 type Props = {
@@ -619,46 +620,48 @@ const SUB_VIEWS: { id: SubView; label: string; icon: React.ElementType }[] = [
   { id: "list",  label: "List",  icon: LayoutList },
   { id: "board", label: "Board", icon: Kanban },
   { id: "focus", label: "Focus", icon: Crosshair },
+  { id: "ideas", label: "Ideas", icon: Lightbulb },
   { id: "stats", label: "Stats", icon: BarChart2 },
 ];
 
 export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete }: Props) {
   const [subView, setSubView] = useState<SubView>("list");
 
-  if (tasks.length === 0) return <SmartEmpty />;
-
   return (
     <div>
       {/* Single-row nav */}
-      <div className="flex items-center gap-1 mb-5 bg-muted/40 rounded-2xl p-1">
+      <div className="flex items-center gap-0.5 mb-5 bg-muted/40 rounded-2xl p-1">
         {SUB_VIEWS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setSubView(id)}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs font-medium transition-all duration-150",
+              "flex-1 flex items-center justify-center gap-1 py-1.5 rounded-xl text-[10px] font-medium transition-all duration-150",
               subView === id
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <Icon className="w-3.5 h-3.5" />
+            <Icon className="w-3 h-3 flex-shrink-0" />
             {label}
           </button>
         ))}
       </div>
 
+      {subView === "ideas" && <IdeasFeed />}
       {subView === "stats" && <StatsCard tasks={tasks} />}
 
       {subView === "list" && (
-        <ListView
-          tasks={tasks}
-          onUpdate={onUpdate}
-          onDelete={onDelete}
-          onAddTask={onAddTask}
-          onBatchUpdate={onBatchUpdate}
-          onBatchDelete={onBatchDelete}
-        />
+        tasks.length === 0 ? <SmartEmpty /> : (
+          <ListView
+            tasks={tasks}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+            onAddTask={onAddTask}
+            onBatchUpdate={onBatchUpdate}
+            onBatchDelete={onBatchDelete}
+          />
+        )
       )}
       {subView === "board" && (
         <BoardView tasks={tasks.filter((t) => !t.completed)} onUpdate={onUpdate} onDelete={onDelete} onAddTask={onAddTask} />

@@ -1,3 +1,18 @@
+export type IdeaSection = { heading: string; points: string[] };
+
+export type Idea = {
+  id: string;
+  user_id: string;
+  created_at: string;
+  raw_input: string;
+  title: string | null;
+  summary: string | null;
+  sections: IdeaSection[];
+  key_insights: string[];
+  action_items: string[];
+  tags: string[];
+};
+
 export type TaskCategory =
   | "personal"
   | "business"
