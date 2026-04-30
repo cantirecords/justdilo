@@ -2,8 +2,8 @@
 import { useMemo, useRef, useState } from "react";
 import { isToday, isTomorrow, isPast, parseISO, format } from "date-fns";
 import {
-  LayoutList, Kanban, Crosshair, BarChart2, Lightbulb,
-  Trash2, Clock, ChevronDown, Plus, Check, AlertTriangle, Pencil,
+  LayoutList, Crosshair, BarChart2, Lightbulb,
+  Trash2, Clock, ChevronDown, AlertTriangle, Pencil,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import CheckButton from "./CheckButton";
@@ -16,7 +16,7 @@ import TaskEditModal from "./TaskEditModal";
 import ProgressRing from "./ProgressRing";
 import type { Task } from "@/lib/types";
 
-type SubView = "list" | "board" | "focus" | "ideas" | "stats";
+type SubView = "list" | "focus" | "ideas" | "stats";
 type Bucket = "Overdue" | "Today" | "Tomorrow" | "Upcoming" | "Someday";
 
 type Props = {
@@ -176,188 +176,6 @@ function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatch
       {activeOrder.map((bucket) => renderBucket(bucket, activeBuckets[bucket]))}
       {completedOrder.map((bucket) => renderBucket(bucket, completedBuckets[bucket], true))}
     </div>
-  );
-}
-
-// ── Board view ───────────────────────────────────────────────────────────────
-
-function BoardView({ tasks, onUpdate, onDelete, onAddTask }: Props) {
-  const [addingToGroup, setAddingToGroup] = useState<string | null>(null);
-
-  const columns = useMemo(() => {
-    const map: Record<string, Task[]> = {};
-    for (const t of tasks) {
-      const key = t.group_name || "General";
-      (map[key] ||= []).push(t);
-    }
-    return Object.entries(map).sort((a, b) => {
-      const aHigh = a[1].some((t) => t.priority === "high");
-      const bHigh = b[1].some((t) => t.priority === "high");
-      return Number(bHigh) - Number(aHigh);
-    });
-  }, [tasks]);
-
-  if (!columns.length) return <SmartEmpty />;
-
-  return (
-    <div className="flex gap-3 overflow-x-auto pb-4 -mx-5 px-5 snap-x snap-mandatory">
-      {columns.map(([group, colTasks]) => {
-        const completed = colTasks.filter((t) => t.completed).length;
-        const hasHigh = colTasks.some((t) => t.priority === "high" && !t.completed);
-        return (
-          <div
-            key={group}
-            className={cn(
-              "flex-shrink-0 w-64 snap-start rounded-2xl border bg-muted/20 p-3 flex flex-col gap-2",
-              hasHigh ? "border-red-200 dark:border-red-900/60" : "border-border",
-            )}
-          >
-            <div className="flex items-center justify-between mb-1 px-0.5">
-              <span className="text-sm font-medium leading-tight truncate">{group}</span>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {hasHigh && (
-                  <span className="text-[9px] uppercase tracking-wider text-red-500 font-semibold">Urgent</span>
-                )}
-                <ProgressRing total={colTasks.length} completed={completed} size={28} />
-                {onAddTask && (
-                  <button
-                    onClick={() => setAddingToGroup(addingToGroup === group ? null : group)}
-                    className="p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition"
-                    aria-label="Add task"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              {colTasks.map((t) => (
-                <BoardCard key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} />
-              ))}
-            </div>
-            {addingToGroup === group && onAddTask && (
-              <BoardAddInput
-                groupName={group}
-                onAdd={onAddTask}
-                onDone={() => setAddingToGroup(null)}
-              />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function BoardAddInput({
-  groupName,
-  onAdd,
-  onDone,
-}: {
-  groupName: string;
-  onAdd: (title: string, group: string) => Promise<void>;
-  onDone: () => void;
-}) {
-  const [value, setValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const ref = useRef<HTMLInputElement>(null);
-
-  async function submit() {
-    if (!value.trim() || saving) return;
-    setSaving(true);
-    await onAdd(value.trim(), groupName);
-    setValue("");
-    setSaving(false);
-    onDone();
-  }
-
-  return (
-    <div className="flex items-center gap-1.5 border-t border-border/40 pt-2 mt-1">
-      <input
-        ref={ref}
-        autoFocus
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="New task…"
-        disabled={saving}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submit();
-          if (e.key === "Escape") onDone();
-        }}
-        onBlur={() => { if (!value.trim()) onDone(); }}
-        className="flex-1 text-xs bg-transparent outline-none placeholder:text-muted-foreground/40"
-      />
-      {value.trim() && (
-        <button onClick={submit} className="text-muted-foreground hover:text-foreground transition">
-          <Check className="w-3 h-3" />
-        </button>
-      )}
-    </div>
-  );
-}
-
-function BoardCard({
-  task,
-  onUpdate,
-  onDelete,
-}: {
-  task: Task;
-  onUpdate: (id: string, patch: Partial<Task>) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [editOpen, setEditOpen] = useState(false);
-  return (
-    <>
-      <div
-        className={cn(
-          "group flex items-start gap-2 rounded-xl bg-background border border-border/60 px-2.5 py-2 transition-opacity",
-          task.completed && "opacity-50",
-        )}
-      >
-        <CheckButton
-          completed={task.completed}
-          onToggle={() => onUpdate(task.id, { completed: !task.completed })}
-          size="sm"
-          className="mt-0.5"
-        />
-        <div className="flex-1 min-w-0">
-          <p
-            onClick={() => onUpdate(task.id, { completed: !task.completed })}
-            className={cn("text-xs leading-snug cursor-pointer hover:opacity-70 transition-opacity", task.completed && "line-through text-muted-foreground")}
-          >
-            {task.title}
-          </p>
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            {task.due_date && (
-              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                <Clock className="w-2.5 h-2.5" />
-                {hasSpecificTime(task.due_date)
-                  ? format(parseISO(task.due_date), "MMM d · h:mma")
-                  : format(parseISO(task.due_date), "MMM d")}
-              </span>
-            )}
-          </div>
-        </div>
-        <RescheduleMenu
-          onReschedule={(date) => onUpdate(task.id, { due_date: date })}
-          iconSize="w-3 h-3"
-        />
-        <button
-          onClick={() => onDelete(task.id)}
-          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-500 transition mt-0.5"
-          aria-label="Delete"
-        >
-          <Trash2 className="w-3 h-3" />
-        </button>
-      </div>
-      {editOpen && (
-        <TaskEditModal
-          task={task}
-          onSave={(patch) => onUpdate(task.id, patch)}
-          onClose={() => setEditOpen(false)}
-        />
-      )}
-    </>
   );
 }
 
@@ -618,7 +436,6 @@ function FocusRow({
 
 const SUB_VIEWS: { id: SubView; label: string; icon: React.ElementType }[] = [
   { id: "list",  label: "List",  icon: LayoutList },
-  { id: "board", label: "Board", icon: Kanban },
   { id: "focus", label: "Focus", icon: Crosshair },
   { id: "ideas", label: "Ideas", icon: Lightbulb },
   { id: "stats", label: "Stats", icon: BarChart2 },
@@ -662,9 +479,6 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
             onBatchDelete={onBatchDelete}
           />
         )
-      )}
-      {subView === "board" && (
-        <BoardView tasks={tasks.filter((t) => !t.completed)} onUpdate={onUpdate} onDelete={onDelete} onAddTask={onAddTask} />
       )}
       {subView === "focus" && (
         <FocusView tasks={tasks.filter((t) => !t.completed)} onUpdate={onUpdate} onDelete={onDelete} />

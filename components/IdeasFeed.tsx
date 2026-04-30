@@ -80,9 +80,13 @@ export default function IdeasFeed() {
     }
   }
 
+  function updateIdea(updated: Idea) {
+    setIdeas((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+  }
+
   async function deleteIdea(id: string) {
     setIdeas((prev) => prev.filter((i) => i.id !== id));
-    await fetch(`/api/ideas?id=${id}`, { method: "DELETE" });
+    await fetch(`/api/ideas/${id}`, { method: "DELETE" });
   }
 
   const allTags = [...new Set(ideas.flatMap((i) => i.tags ?? []))];
@@ -170,7 +174,7 @@ export default function IdeasFeed() {
       ) : (
         <div className="space-y-3">
           {filtered.map((idea) => (
-            <IdeaCard key={idea.id} idea={idea} onDelete={deleteIdea} />
+            <IdeaCard key={idea.id} idea={idea} onDelete={deleteIdea} onUpdate={updateIdea} />
           ))}
         </div>
       )}

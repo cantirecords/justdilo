@@ -35,7 +35,8 @@
       "Bash(vercel deploy *)"
     ],
     "additionalDirectories": [
-      "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/public"
+      "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/public",
+      "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/app/api/ideas"
     ]
   }
 }
