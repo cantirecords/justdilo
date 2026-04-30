@@ -518,7 +518,10 @@ function FocusRow({
 
         {/* Sliding row */}
         <div
-          className="flex items-center gap-3 px-4 py-3 bg-transparent transition-transform duration-200 ease-out"
+          className={cn(
+            "flex items-center gap-3 px-4 py-3 transition-transform duration-200 ease-out",
+            overdue ? "bg-red-50/30 dark:bg-red-950/20" : "bg-muted/20",
+          )}
           style={{ transform: actionsOpen ? "translateX(-88px)" : "translateX(0)" }}
           onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
           onTouchEnd={(e) => {

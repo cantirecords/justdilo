@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { CATEGORIES, CATEGORY_CONFIG } from "@/lib/categories";
+import { CATEGORY_CONFIG } from "@/lib/categories";
 import type { Task } from "@/lib/types";
 
 type Props = {
@@ -181,30 +181,17 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
             </div>
           </div>
 
-          <div>
-            <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2 block">Category</label>
-            <div className="flex flex-wrap gap-1.5">
-              {CATEGORIES.map((cat) => {
-                const cfg = CATEGORY_CONFIG[cat];
-                const active = category === cat;
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => setCategory(active ? null : cat)}
-                    className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition",
-                      active
-                        ? cn(cfg.badge, "border-transparent")
-                        : "bg-muted/30 border-border text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <span>{cfg.icon}</span>
-                    {cfg.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          {category && (() => {
+            const cfg = CATEGORY_CONFIG[category];
+            return cfg ? (
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Category</label>
+                <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium", cfg.badge)}>
+                  {cfg.icon} {cfg.label}
+                </span>
+              </div>
+            ) : null;
+          })()}
 
           <div>
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">Notes</label>
