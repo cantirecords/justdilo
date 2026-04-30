@@ -218,7 +218,11 @@ export async function POST(req: Request) {
 
   let inserted: any[] = [];
   if (rows.length) {
-    const { data, error: insertErr } = await supabase.from("tasks").insert(rows).select();
+    let { data, error: insertErr } = await supabase.from("tasks").insert(rows).select();
+    if (insertErr?.message?.includes("schema cache")) {
+      const safeRows = rows.map(({ category: _c, ...r }) => r);
+      ({ data, error: insertErr } = await supabase.from("tasks").insert(safeRows).select());
+    }
     if (insertErr) {
       console.error("[process-voice] tasks insert error:", insertErr.message, insertErr.code);
       return NextResponse.json({ error: `DB error: ${insertErr.message}`, transcript }, { status: 500 });

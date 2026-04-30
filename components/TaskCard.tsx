@@ -73,10 +73,9 @@ export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTa
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
               {catConfig && (
-                <span
-                  className={cn("w-2 h-2 rounded-full flex-shrink-0", catConfig.dot)}
-                  title={catConfig.label}
-                />
+                <span className="text-sm flex-shrink-0" title={catConfig.label}>
+                  {catConfig.icon}
+                </span>
               )}
               {editingGroup ? (
                 <input

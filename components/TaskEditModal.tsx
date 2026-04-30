@@ -198,7 +198,7 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
                         : "bg-muted/30 border-border text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", cfg.dot)} />
+                    <span>{cfg.icon}</span>
                     {cfg.label}
                   </button>
                 );
