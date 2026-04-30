@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase/server";
+import { parseISO, addDays, addWeeks, addMonths } from "date-fns";
 
 const PATCHABLE = new Set([
   "title", "group_name", "summary", "due_date", "priority", "completed",
@@ -7,19 +8,44 @@ const PATCHABLE = new Set([
   "recurring_day_of_month", "recurring_next_due", "category",
 ]);
 
+function nextRecurringDue(dueISO: string, type: string): string {
+  const base = parseISO(dueISO);
+  let next: Date;
+  if (type === "daily")   next = addDays(base, 1);
+  else if (type === "weekly")  next = addWeeks(base, 1);
+  else                         next = addMonths(base, 1);
+  return next.toISOString();
+}
+
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const raw = await req.json();
   const body = Object.fromEntries(Object.entries(raw).filter(([k]) => PATCHABLE.has(k)));
   const supabase = await createSupabaseServer();
 
-  // Try with all fields; if schema cache rejects a column, drop it and retry
   let { data, error } = await supabase.from("tasks").update(body).eq("id", id).select().single();
   if (error?.message?.includes("schema cache")) {
     const safe = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "category"));
     ({ data, error } = await supabase.from("tasks").update(safe).eq("id", id).select().single());
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // When marking a recurring task complete, spawn the next occurrence
+  if (body.completed === true && data?.recurring_type && data?.due_date) {
+    const nextDue = nextRecurringDue(data.due_date, data.recurring_type);
+    const nextTask = {
+      user_id: data.user_id,
+      title: data.title,
+      group_name: data.group_name ?? null,
+      summary: data.summary ?? null,
+      priority: data.priority ?? null,
+      recurring_type: data.recurring_type,
+      due_date: nextDue,
+      completed: false,
+    };
+    await supabase.from("tasks").insert(nextTask);
+  }
+
   return NextResponse.json({ task: data });
 }
 

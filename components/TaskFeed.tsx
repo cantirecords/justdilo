@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import CheckButton from "./CheckButton";
-import RescheduleMenu from "./RescheduleMenu";
 import StatsCard from "./StatsCard";
 import IdeasFeed from "./IdeasFeed";
 import { cn } from "@/lib/utils";
@@ -83,22 +82,25 @@ function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatch
     };
 
     for (const t of tasks) {
+      const key = t.group_name || "General";
       if (t.completed) {
-        const createdAt = parseISO(t.created_at);
-        const bucket: CompletedBucket = isToday(createdAt) ? "Completed Today" : "Completed This Week";
-        const key = t.group_name || "General";
-        (completed[bucket][key] ||= []).push(t);
+        // Completed tasks due today stay in the Today bucket with strikethrough
+        if (t.due_date && isToday(parseISO(t.due_date))) {
+          (active["Today"][key] ||= []).push(t);
+        } else {
+          const completedAt = parseISO(t.created_at);
+          const bucket: CompletedBucket = isToday(completedAt) ? "Completed Today" : "Completed This Week";
+          (completed[bucket][key] ||= []).push(t);
+        }
       } else {
         let b: Bucket = "Someday";
         if (t.due_date) {
           const d = parseISO(t.due_date);
-          // Past but not today = genuinely overdue
           if (isPast(d) && !isToday(d)) b = "Overdue";
           else if (isToday(d)) b = "Today";
           else if (isTomorrow(d)) b = "Tomorrow";
           else b = "Upcoming";
         }
-        const key = t.group_name || "General";
         (active[b][key] ||= []).push(t);
       }
     }
@@ -186,21 +188,23 @@ const PRIORITY_ORDER = { high: 0, med: 1, low: 2 } as const;
 function FocusView({ tasks, onUpdate, onDelete }: Props) {
   const now = new Date();
 
-  const { overdue, todayPending, done } = useMemo(() => {
+  // today = ALL tasks due today (pending + completed), so completed ones stay visible with strikethrough
+  const { overdue, today } = useMemo(() => {
     const overdue: Task[] = [];
-    const todayPending: Task[] = [];
-    const done: Task[] = [];
+    const today: Task[] = [];
 
     for (const t of tasks) {
       if (!t.due_date) continue;
       const d = parseISO(t.due_date);
-      if (t.completed && isToday(d)) { done.push(t); continue; }
+      if (isToday(d)) { today.push(t); continue; }
       if (t.completed) continue;
-      if (isPast(d) && !isToday(d)) { overdue.push(t); continue; }
-      if (isToday(d)) todayPending.push(t);
+      if (isPast(d) && !isToday(d)) overdue.push(t);
     }
 
     const byTime = (a: Task, b: Task) => {
+      // Pending first, completed last
+      if (!a.completed && b.completed) return -1;
+      if (a.completed && !b.completed) return 1;
       const at = hasSpecificTime(a.due_date!);
       const bt = hasSpecificTime(b.due_date!);
       if (at && bt) return parseISO(a.due_date!).getTime() - parseISO(b.due_date!).getTime();
@@ -209,11 +213,7 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
       return (PRIORITY_ORDER[a.priority ?? "low"] ?? 2) - (PRIORITY_ORDER[b.priority ?? "low"] ?? 2);
     };
 
-    return {
-      overdue: overdue.sort(byTime),
-      todayPending: todayPending.sort(byTime),
-      done,
-    };
+    return { overdue: overdue.sort(byTime), today: today.sort(byTime) };
   }, [tasks]);
 
   const tomorrowCount = useMemo(
@@ -221,13 +221,14 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
     [tasks],
   );
 
-  const totalPending = overdue.length + todayPending.length;
-  const totalTasks = totalPending + done.length;
-  const completionPct = totalTasks > 0 ? Math.round((done.length / totalTasks) * 100) : 0;
+  const todayDoneCount = today.filter((t) => t.completed).length;
+  const todayPendingCount = today.filter((t) => !t.completed).length;
+  const totalPending = overdue.length + todayPendingCount;
+  const totalTasks = overdue.length + today.length;
+  const completionPct = totalTasks > 0 ? Math.round((todayDoneCount / totalTasks) * 100) : 0;
   const allDoneToday = totalTasks > 0 && totalPending === 0;
-  const nextTimed = todayPending.find((t) => t.due_date && hasSpecificTime(t.due_date) && parseISO(t.due_date) > now);
+  const nextTimed = today.find((t) => !t.completed && t.due_date && hasSpecificTime(t.due_date) && parseISO(t.due_date) > now);
 
-  // Nothing scheduled today at all
   if (!totalTasks && !overdue.length) {
     return (
       <div className="text-center py-20 space-y-3 animate-rise">
@@ -243,14 +244,11 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
     );
   }
 
-  // Progress bar gradient based on completion
   const barGradient = allDoneToday
     ? "linear-gradient(90deg, #22c55e, #16a34a)"
-    : overdue.length > 0
-    ? "linear-gradient(90deg, #ef4444, #f97316)"
-    : completionPct >= 50
+    : completionPct >= 60
     ? "linear-gradient(90deg, #3b82f6, #6366f1)"
-    : "linear-gradient(90deg, #f97316, #eab308)";
+    : "linear-gradient(90deg, #f59e0b, #f97316)";
 
   return (
     <div className="space-y-5">
@@ -269,33 +267,30 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
             )}
             {allDoneToday && (
               <p className="text-xs text-muted-foreground mt-1.5">
-                {done.length} task{done.length !== 1 ? "s" : ""} completed today
+                {todayDoneCount} task{todayDoneCount !== 1 ? "s" : ""} completed today
               </p>
             )}
           </div>
           <div className="text-right pb-0.5">
-            <p className="text-4xl font-black tabular-nums" style={{ background: barGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+            <p className="text-4xl font-black tabular-nums text-foreground">
               {completionPct}%
             </p>
           </div>
         </div>
-        {/* Animated progress bar */}
-        <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+        <div className="h-2 bg-muted rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-700 ease-out"
-            style={{ width: `${Math.max(completionPct, completionPct > 0 ? 4 : 0)}%`, background: barGradient }}
+            style={{ width: `${Math.max(completionPct, completionPct > 0 ? 3 : 0)}%`, background: barGradient }}
           />
         </div>
-        {totalTasks > 0 && (
-          <p className="text-[10px] text-muted-foreground/60 text-right tabular-nums">
-            {done.length} / {totalTasks} done
-          </p>
-        )}
+        <p className="text-[10px] text-muted-foreground/50 text-right tabular-nums">
+          {todayDoneCount} / {totalTasks} done
+        </p>
       </div>
 
       {/* ── Overdue ── */}
       {overdue.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <div className="flex items-center gap-1.5 px-0.5">
             <AlertTriangle className="w-3 h-3 text-red-500" />
             <p className="text-[10px] uppercase tracking-widest font-bold text-red-500">
@@ -308,26 +303,14 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
         </div>
       )}
 
-      {/* ── Today ── */}
-      {todayPending.length > 0 && (
-        <div className="space-y-2">
-          {overdue.length > 0 && (
+      {/* ── Today — completed tasks STAY HERE with strikethrough ── */}
+      {today.length > 0 && (
+        <div className="space-y-2.5">
+          {overdue.length > 0 && todayPendingCount > 0 && (
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 px-0.5">Today</p>
           )}
-          {todayPending.map((t, i) => (
+          {today.map((t, i) => (
             <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} index={overdue.length + i} />
-          ))}
-        </div>
-      )}
-
-      {/* ── Done ── */}
-      {done.length > 0 && (
-        <div className="space-y-2 opacity-35">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-0.5">
-            Done · {done.length}
-          </p>
-          {done.map((t, i) => (
-            <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} index={i} />
           ))}
         </div>
       )}
@@ -358,35 +341,31 @@ function FocusRow({
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [completing, setCompleting] = useState(false);
   const touchStartX = useRef(0);
   const hasTimed = task.due_date && hasSpecificTime(task.due_date);
   const dueDate = task.due_date ? parseISO(task.due_date) : null;
   const isFuture = dueDate && dueDate > new Date();
 
+  // Direct toggle — no fade-out. Completed tasks stay visible with strikethrough.
   function handleToggleComplete() {
-    if (task.completed) {
-      onUpdate(task.id, { completed: false });
-      return;
-    }
-    setCompleting(true);
-    setTimeout(() => onUpdate(task.id, { completed: true }), 500);
+    onUpdate(task.id, { completed: !task.completed });
   }
+
+  const overdueGlow = "0 0 0 1.5px rgba(239,68,68,0.7), 0 0 24px rgba(239,68,68,0.22), 0 4px 12px rgba(0,0,0,0.10)";
+  const normalShadow = "0 0 0 1px rgba(120,120,180,0.10), 0 4px 16px rgba(0,0,0,0.09), 0 1px 3px rgba(0,0,0,0.05)";
 
   return (
     <>
       <div
         className={cn(
-          "relative overflow-hidden rounded-2xl border-l-4 border border-border animate-rise transition-opacity duration-500",
-          completing && "opacity-0 pointer-events-none",
-          overdue
-            ? "border-l-red-500 bg-red-50/20 dark:bg-red-950/10 border-border/60"
-            : task.priority === "high"
-            ? "border-l-orange-400"
-            : "border-l-transparent",
+          "relative overflow-hidden rounded-2xl border bg-background animate-rise transition-all duration-300",
+          overdue && !task.completed ? "border-red-400/50" : "border-border/60",
           task.completed && "opacity-40",
         )}
-        style={{ animationDelay: `${index * 55}ms` }}
+        style={{
+          animationDelay: `${index * 55}ms`,
+          boxShadow: overdue && !task.completed ? overdueGlow : normalShadow,
+        }}
       >
         {/* Swipe action strip */}
         <div className="absolute inset-y-0 right-0 flex items-stretch" style={{ width: 88 }}>
@@ -406,11 +385,11 @@ function FocusRow({
           </button>
         </div>
 
-        {/* Sliding content — fully opaque to hide action strip */}
+        {/* Sliding content */}
         <div
           className={cn(
-            "flex items-center gap-3 px-4 py-3.5 transition-transform duration-200 ease-out",
-            overdue ? "bg-red-50 dark:bg-red-950/60" : "bg-background",
+            "flex items-center gap-3.5 px-4 py-4 transition-transform duration-200 ease-out",
+            overdue && !task.completed ? "bg-red-50/60 dark:bg-red-950/40" : "bg-background",
           )}
           style={{ transform: actionsOpen ? "translateX(-88px)" : "translateX(0)" }}
           onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
@@ -421,18 +400,14 @@ function FocusRow({
           }}
           onClick={() => { if (actionsOpen) setActionsOpen(false); }}
         >
-          <CheckButton
-            completed={task.completed}
-            onToggle={handleToggleComplete}
-            size="lg"
-          />
+          <CheckButton completed={task.completed} onToggle={handleToggleComplete} size="lg" />
+
           <div className="flex-1 min-w-0">
-            {/* Title — tap opens edit, NOT complete */}
             <p
               onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); setEditOpen(true); } }}
               className={cn(
-                "text-sm font-semibold leading-snug cursor-pointer hover:opacity-80 transition-opacity",
-                task.completed && "line-through text-muted-foreground",
+                "text-sm font-semibold leading-snug cursor-pointer",
+                task.completed ? "line-through text-muted-foreground" : "text-foreground",
                 overdue && !task.completed && "text-red-600 dark:text-red-400",
               )}
             >
@@ -450,7 +425,7 @@ function FocusRow({
                   <Clock className="w-3 h-3" />
                   {format(dueDate, "h:mm a")}
                   {!task.completed && (
-                    <span className="text-muted-foreground/60 font-normal ml-0.5">
+                    <span className="text-muted-foreground/50 font-normal ml-0.5">
                       · {formatDistanceToNow(dueDate, { addSuffix: true })}
                     </span>
                   )}
@@ -461,20 +436,25 @@ function FocusRow({
                   {formatDistanceToNow(dueDate, { addSuffix: true })}
                 </span>
               )}
+              {task.recurring_type && (
+                <span className="text-[10px] text-muted-foreground/50">↻ {task.recurring_type}</span>
+              )}
             </div>
+            {task.summary && !task.completed && (
+              <p className="text-[11px] text-muted-foreground/60 mt-1 leading-relaxed line-clamp-2">
+                {task.summary}
+              </p>
+            )}
           </div>
-          {!task.completed && (
-            <RescheduleMenu
-              onReschedule={(date) => onUpdate(task.id, { due_date: date })}
-              iconSize="w-4 h-4"
-              alwaysVisible
-            />
-          )}
+
         </div>
 
-        {/* Overdue pulsing ring */}
+        {/* Red glow ring for overdue — pulsing animation */}
         {overdue && !task.completed && (
-          <div className="absolute inset-0 rounded-[calc(1rem-1px)] border-2 border-red-500 animate-pulse pointer-events-none z-10" />
+          <div
+            className="absolute inset-0 rounded-2xl pointer-events-none z-10 animate-pulse"
+            style={{ boxShadow: "inset 0 0 0 1.5px rgba(239,68,68,0.65)" }}
+          />
         )}
       </div>
 
@@ -538,7 +518,7 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
         )
       )}
       {subView === "focus" && (
-        <FocusView tasks={tasks.filter((t) => !t.completed)} onUpdate={onUpdate} onDelete={onDelete} />
+        <FocusView tasks={tasks} onUpdate={onUpdate} onDelete={onDelete} />
       )}
     </div>
   );

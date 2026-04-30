@@ -33,8 +33,47 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Flush offline queue when back online
+  useEffect(() => {
+    const LS_KEY = "justdilo:offlineQueue";
+    async function flush() {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const queue: string[] = JSON.parse(raw);
+      if (!queue.length) return;
+      localStorage.removeItem(LS_KEY);
+      toast("Back online — syncing saved tasks…");
+      for (const item of queue) {
+        try {
+          const res = await fetch("/api/process-text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: item, utcOffset: -new Date().getTimezoneOffset() }),
+          });
+          const json = await res.json();
+          if (res.ok && json.tasks?.length) onNewTasks(json.tasks, json.overall_summary ?? "", json.groups?.length ?? 0);
+        } catch {}
+      }
+      toast.success("Offline tasks synced");
+    }
+    window.addEventListener("online", flush);
+    return () => window.removeEventListener("online", flush);
+  }, [onNewTasks]);
+
   async function submit() {
     if (!text.trim() || loading) return;
+
+    if (!navigator.onLine) {
+      const LS_KEY = "justdilo:offlineQueue";
+      const queue: string[] = JSON.parse(localStorage.getItem(LS_KEY) ?? "[]");
+      queue.push(text.trim());
+      localStorage.setItem(LS_KEY, JSON.stringify(queue));
+      toast("You're offline — task saved, will sync when connected");
+      setText("");
+      setOpen(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/process-text", {

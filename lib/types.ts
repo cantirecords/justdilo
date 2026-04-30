@@ -1,5 +1,7 @@
 export type IdeaSection = { heading: string; points: string[] };
 
+export type IdeaCollaborator = { id: string; email: string };
+
 export type Idea = {
   id: string;
   user_id: string;
@@ -11,6 +13,8 @@ export type Idea = {
   key_insights: string[];
   action_items: string[];
   tags: string[];
+  is_owner?: boolean;
+  collaborators?: IdeaCollaborator[];
 };
 
 export type TaskCategory =

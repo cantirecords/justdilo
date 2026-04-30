@@ -32,6 +32,9 @@ export default function CheckButton({ completed, onToggle, size = "md", classNam
   const s = sizes[size];
 
   function handleClick() {
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      navigator.vibrate(!completed ? [12] : [6]);
+    }
     if (!completed) {
       setBursting(true);
       setTimeout(() => setBursting(false), 650);

@@ -1,7 +1,8 @@
 "use client";
 import { createPortal } from "react-dom";
-import { useState } from "react";
-import { X, Plus, Trash2, ArrowRight, Check, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { addDays, nextMonday } from "date-fns";
+import { X, Plus, Trash2, ArrowRight, Check, Loader2, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Idea, IdeaSection } from "@/lib/types";
@@ -25,6 +26,26 @@ export default function IdeaEditModal({ idea, onSave, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [pushed, setPushed] = useState<Set<number>>(new Set());
   const [pushing, setPushing] = useState<number | null>(null);
+  const [datePicker, setDatePicker] = useState<number | null>(null);
+  const datePickerRef = useRef<HTMLDivElement>(null);
+
+  const DATE_OPTIONS = [
+    { label: "Today", getDue: () => { const d = new Date(); d.setHours(23, 59, 0, 0); return d.toISOString(); } },
+    { label: "Tomorrow", getDue: () => { const d = addDays(new Date(), 1); d.setHours(23, 59, 0, 0); return d.toISOString(); } },
+    { label: "Next week", getDue: () => { const d = nextMonday(new Date()); d.setHours(23, 59, 0, 0); return d.toISOString(); } },
+    { label: "Someday", getDue: () => null as string | null },
+  ];
+
+  useEffect(() => {
+    if (datePicker === null) return;
+    function handleClick(e: MouseEvent) {
+      if (datePickerRef.current && !datePickerRef.current.contains(e.target as Node)) {
+        setDatePicker(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [datePicker]);
 
   async function save() {
     setSaving(true);
@@ -45,14 +66,17 @@ export default function IdeaEditModal({ idea, onSave, onClose }: Props) {
     }
   }
 
-  async function pushToTask(index: number) {
+  async function pushToTask(index: number, dueISO: string | null) {
     if (pushed.has(index) || pushing === index) return;
+    setDatePicker(null);
     setPushing(index);
     try {
+      const body: Record<string, unknown> = { title: actions[index], group_name: title || idea.title || "Idea" };
+      if (dueISO) body.due_date = dueISO;
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: actions[index], group_name: title || idea.title || "Idea" }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed");
       setPushed((prev) => new Set([...prev, index]));
@@ -227,25 +251,43 @@ export default function IdeaEditModal({ idea, onSave, onClose }: Props) {
                         onChange={(e) => updateAction(i, e.target.value)}
                         className="flex-1 bg-transparent px-2.5 py-1.5 text-xs outline-none"
                       />
-                      <button
-                        onClick={() => pushToTask(i)}
-                        disabled={pushed.has(i) || pushing === i}
-                        className={cn(
-                          "flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition flex-shrink-0",
-                          pushed.has(i)
-                            ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                            : "bg-foreground/10 text-foreground hover:bg-foreground/20",
+                      <div className="relative flex-shrink-0">
+                        <button
+                          onClick={() => { if (!pushed.has(i) && pushing !== i) setDatePicker(datePicker === i ? null : i); }}
+                          disabled={pushed.has(i) || pushing === i}
+                          className={cn(
+                            "flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition",
+                            pushed.has(i)
+                              ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                              : "bg-foreground/10 text-foreground hover:bg-foreground/20",
+                          )}
+                          title="Add as task"
+                        >
+                          {pushing === i
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : pushed.has(i)
+                            ? <Check className="w-3 h-3" />
+                            : <Calendar className="w-3 h-3" />
+                          }
+                          {pushed.has(i) ? "Added" : "→ Task"}
+                        </button>
+                        {datePicker === i && (
+                          <div
+                            ref={datePickerRef}
+                            className="absolute right-0 bottom-full mb-1 z-50 bg-background border border-border rounded-xl shadow-xl py-1 min-w-[110px] overflow-hidden"
+                          >
+                            {DATE_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.label}
+                                onClick={() => pushToTask(i, opt.getDue())}
+                                className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition whitespace-nowrap"
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
                         )}
-                        title="Add as task"
-                      >
-                        {pushing === i
-                          ? <Loader2 className="w-3 h-3 animate-spin" />
-                          : pushed.has(i)
-                          ? <Check className="w-3 h-3" />
-                          : <ArrowRight className="w-3 h-3" />
-                        }
-                        {pushed.has(i) ? "Added" : "→ Task"}
-                      </button>
+                      </div>
                     </div>
                     <button onClick={() => removeAction(i)} className="text-muted-foreground hover:text-red-500 transition flex-shrink-0">
                       <Trash2 className="w-3.5 h-3.5" />

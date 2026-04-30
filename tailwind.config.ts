@@ -17,10 +17,10 @@ const config: Config = {
       borderRadius: { lg: "1rem", md: "0.75rem", sm: "0.5rem" },
       keyframes: {
         pulse: { "0%,100%": { opacity: "1" }, "50%": { opacity: ".6" } },
-        rise: { "0%": { transform: "translateY(8px)", opacity: "0" }, "100%": { transform: "translateY(0)", opacity: "1" } },
+        rise: { "0%": { transform: "translateY(18px)", opacity: "0" }, "100%": { transform: "translateY(0)", opacity: "1" } },
       },
       animation: {
-        rise: "rise 0.35s ease-out both",
+        rise: "rise 0.45s cubic-bezier(0.16,1,0.3,1) both",
       },
     },
   },

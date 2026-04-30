@@ -17,9 +17,27 @@ export default function IdeasFeed() {
   const chunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
+    const LS_KEY = "justdilo:lastIdeaCheck";
+    const lastCheck = localStorage.getItem(LS_KEY);
+
     fetch("/api/ideas")
       .then((r) => r.json())
-      .then(({ ideas }) => setIdeas(ideas ?? []))
+      .then(({ ideas }) => {
+        const all: Idea[] = ideas ?? [];
+        setIdeas(all);
+
+        // Notify about new shared ideas since last visit
+        const newShared = all.filter(
+          (i) => i.is_owner === false &&
+            (!lastCheck || new Date(i.created_at) > new Date(lastCheck)),
+        );
+        if (newShared.length > 0) {
+          toast(`${newShared.length} new idea${newShared.length > 1 ? "s" : ""} shared with you`, {
+            duration: 5000,
+          });
+        }
+        localStorage.setItem(LS_KEY, new Date().toISOString());
+      })
       .catch(() => toast.error("Couldn't load ideas"))
       .finally(() => setLoading(false));
   }, []);
@@ -35,7 +53,7 @@ export default function IdeasFeed() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setIdeas((prev) => [data.idea, ...prev]);
+      setIdeas((prev) => [{ ...data.idea, is_owner: true, collaborators: [] }, ...prev]);
       setText("");
     } catch (e: any) {
       toast.error(e.message || "Couldn't process idea");
@@ -65,7 +83,7 @@ export default function IdeasFeed() {
           const res = await fetch("/api/process-idea", { method: "POST", body: form });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error);
-          setIdeas((prev) => [data.idea, ...prev]);
+          setIdeas((prev) => [{ ...data.idea, is_owner: true, collaborators: [] }, ...prev]);
         } catch (e: any) {
           toast.error(e.message || "Couldn't process idea");
         } finally {
@@ -81,7 +99,9 @@ export default function IdeasFeed() {
   }
 
   function updateIdea(updated: Idea) {
-    setIdeas((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+    setIdeas((prev) => prev.map((i) =>
+      i.id === updated.id ? { ...updated, is_owner: i.is_owner, collaborators: i.collaborators } : i,
+    ));
   }
 
   async function deleteIdea(id: string) {
@@ -173,9 +193,31 @@ export default function IdeasFeed() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((idea) => (
-            <IdeaCard key={idea.id} idea={idea} onDelete={deleteIdea} onUpdate={updateIdea} />
-          ))}
+          {(() => {
+            const own = filtered.filter((i) => i.is_owner !== false);
+            const shared = filtered.filter((i) => i.is_owner === false);
+            return (
+              <>
+                {own.map((idea) => (
+                  <IdeaCard key={idea.id} idea={idea} onDelete={deleteIdea} onUpdate={updateIdea} />
+                ))}
+                {shared.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-2 py-1">
+                      <div className="flex-1 border-t border-border/30" />
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/40">
+                        Shared with you
+                      </span>
+                      <div className="flex-1 border-t border-border/30" />
+                    </div>
+                    {shared.map((idea) => (
+                      <IdeaCard key={idea.id} idea={idea} onDelete={deleteIdea} onUpdate={updateIdea} />
+                    ))}
+                  </>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
     </div>

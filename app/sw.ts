@@ -43,3 +43,34 @@ const serwist = new Serwist({
 });
 
 serwist.addEventListeners();
+
+// Push notifications — cast to any to avoid missing SW lib types
+const swSelf = self as any;
+
+swSelf.addEventListener("push", (event: any) => {
+  if (!event.data) return;
+  const { title, body, url } = event.data.json() as { title: string; body: string; url: string };
+  event.waitUntil(
+    swSelf.registration.showNotification(title, {
+      body,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-96.png",
+      data: { url },
+      vibrate: [100, 50, 100],
+    }),
+  );
+});
+
+swSelf.addEventListener("notificationclick", (event: any) => {
+  event.notification.close();
+  const url = (event.notification.data?.url as string) ?? "/";
+  event.waitUntil(
+    swSelf.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clients: any[]) => {
+        const existing = clients.find((c: any) => c.url.includes(url));
+        if (existing) return existing.focus();
+        return swSelf.clients.openWindow(url);
+      }),
+  );
+});

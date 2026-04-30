@@ -6,6 +6,7 @@ import { useDarkMode } from "@/lib/useDarkMode";
 import { useTTS } from "@/lib/useTTS";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import MicButton, { type MicButtonHandle } from "./MicButton";
+import PushNotificationButton from "./PushNotificationButton";
 import ProcessingStatus, { type ProcessPhase } from "./ProcessingStatus";
 import FloatingWidget from "./FloatingWidget";
 import TaskFeed from "./TaskFeed";
@@ -222,6 +223,7 @@ export default function Dashboard({ initialTasks, userEmail }: { initialTasks: T
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <PushNotificationButton />
           <button
             onClick={toggleDark}
             className="p-2 rounded-full hover:bg-muted transition"

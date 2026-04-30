@@ -6,5 +6,11 @@
     "app/api/process-voice/route.ts": {
       "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/push/notify",
+      "schedule": "0 9 * * *"
+    }
+  ]
 }

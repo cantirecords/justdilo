@@ -22,7 +22,6 @@ export async function PATCH(
     .from("ideas")
     .update(patch)
     .eq("id", id)
-    .eq("user_id", user.id)
     .select()
     .single();
 
