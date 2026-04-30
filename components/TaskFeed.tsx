@@ -224,71 +224,117 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
   const totalPending = overdue.length + todayPending.length;
   const totalTasks = totalPending + done.length;
   const completionPct = totalTasks > 0 ? Math.round((done.length / totalTasks) * 100) : 0;
+  const allDoneToday = totalTasks > 0 && totalPending === 0;
   const nextTimed = todayPending.find((t) => t.due_date && hasSpecificTime(t.due_date) && parseISO(t.due_date) > now);
 
+  // Nothing scheduled today at all
   if (!totalTasks && !overdue.length) {
     return (
-      <div className="text-center py-16 space-y-2">
-        <p className="text-2xl">✓</p>
-        <p className="text-sm text-muted-foreground">Nothing due today.</p>
+      <div className="text-center py-20 space-y-3 animate-rise">
+        <p className="text-5xl">🎯</p>
+        <p className="text-base font-semibold">Nothing due today.</p>
+        <p className="text-sm text-muted-foreground">Clear schedule — use the time well.</p>
         {tomorrowCount > 0 && (
-          <p className="text-xs text-muted-foreground/50">{tomorrowCount} task{tomorrowCount !== 1 ? "s" : ""} tomorrow.</p>
+          <p className="text-xs text-muted-foreground/50 pt-2">
+            {tomorrowCount} task{tomorrowCount !== 1 ? "s" : ""} coming tomorrow.
+          </p>
         )}
       </div>
     );
   }
 
+  // Progress bar gradient based on completion
+  const barGradient = allDoneToday
+    ? "linear-gradient(90deg, #22c55e, #16a34a)"
+    : overdue.length > 0
+    ? "linear-gradient(90deg, #ef4444, #f97316)"
+    : completionPct >= 50
+    ? "linear-gradient(90deg, #3b82f6, #6366f1)"
+    : "linear-gradient(90deg, #f97316, #eab308)";
+
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between px-1">
-        <div>
-          <p className="text-sm font-semibold">
-            {totalPending > 0 ? `${totalPending} left` : "All done today 🎉"}
-          </p>
-          {nextTimed && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Next at {format(parseISO(nextTimed.due_date!), "h:mm a")} · {nextTimed.title}
+      {/* ── Header ── */}
+      <div className="space-y-3 animate-rise">
+        <div className="flex items-end justify-between px-0.5">
+          <div>
+            <p className="text-3xl font-black tracking-tight leading-none">
+              {allDoneToday ? "All done 🎉" : `${totalPending} left`}
             </p>
-          )}
+            {!allDoneToday && nextTimed && (
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Next · <span className="font-medium text-foreground">{nextTimed.title}</span>
+                {" "}at {format(parseISO(nextTimed.due_date!), "h:mm a")}
+              </p>
+            )}
+            {allDoneToday && (
+              <p className="text-xs text-muted-foreground mt-1.5">
+                {done.length} task{done.length !== 1 ? "s" : ""} completed today
+              </p>
+            )}
+          </div>
+          <div className="text-right pb-0.5">
+            <p className="text-4xl font-black tabular-nums" style={{ background: barGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+              {completionPct}%
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs tabular-nums text-muted-foreground">{completionPct}%</span>
-          <ProgressRing total={totalTasks} completed={done.length} size={32} />
+        {/* Animated progress bar */}
+        <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+          <div
+            className="h-full rounded-full transition-all duration-700 ease-out"
+            style={{ width: `${Math.max(completionPct, completionPct > 0 ? 4 : 0)}%`, background: barGradient }}
+          />
         </div>
+        {totalTasks > 0 && (
+          <p className="text-[10px] text-muted-foreground/60 text-right tabular-nums">
+            {done.length} / {totalTasks} done
+          </p>
+        )}
       </div>
 
-      {/* Overdue — always at top, red */}
+      {/* ── Overdue ── */}
       {overdue.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-widest font-semibold text-red-500 px-1 flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3" /> Overdue
-          </p>
-          {overdue.map((t) => <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} overdue />)}
+          <div className="flex items-center gap-1.5 px-0.5">
+            <AlertTriangle className="w-3 h-3 text-red-500" />
+            <p className="text-[10px] uppercase tracking-widest font-bold text-red-500">
+              Overdue · {overdue.length}
+            </p>
+          </div>
+          {overdue.map((t, i) => (
+            <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} overdue index={i} />
+          ))}
         </div>
       )}
 
-      {/* Today pending */}
+      {/* ── Today ── */}
       {todayPending.length > 0 && (
         <div className="space-y-2">
           {overdue.length > 0 && (
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-1">Today</p>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 px-0.5">Today</p>
           )}
-          {todayPending.map((t) => <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} />)}
+          {todayPending.map((t, i) => (
+            <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} index={overdue.length + i} />
+          ))}
         </div>
       )}
 
-      {/* Done */}
+      {/* ── Done ── */}
       {done.length > 0 && (
-        <div className="space-y-2 opacity-40">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-1">Done</p>
-          {done.map((t) => <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} />)}
+        <div className="space-y-2 opacity-35">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground px-0.5">
+            Done · {done.length}
+          </p>
+          {done.map((t, i) => (
+            <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} index={i} />
+          ))}
         </div>
       )}
 
       {tomorrowCount > 0 && (
-        <div className="pt-2 border-t border-border/40">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 px-1">
+        <div className="pt-2 border-t border-border/30">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/40 px-0.5">
             Tomorrow · {tomorrowCount} task{tomorrowCount !== 1 ? "s" : ""}
           </p>
         </div>
@@ -302,11 +348,13 @@ function FocusRow({
   onUpdate,
   onDelete,
   overdue = false,
+  index = 0,
 }: {
   task: Task;
   onUpdate: (id: string, patch: Partial<Task>) => void;
   onDelete: (id: string) => void;
   overdue?: boolean;
+  index?: number;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -322,17 +370,24 @@ function FocusRow({
       return;
     }
     setCompleting(true);
-    setTimeout(() => onUpdate(task.id, { completed: true }), 550);
+    setTimeout(() => onUpdate(task.id, { completed: true }), 500);
   }
 
   return (
     <>
-      <div className={cn(
-        "relative overflow-hidden rounded-2xl border transition-opacity duration-500",
-        completing && "opacity-0 pointer-events-none",
-        overdue ? "border-red-500 bg-red-50/30 dark:bg-red-950/20" : "border-border bg-muted/20",
-        task.completed && "opacity-50",
-      )}>
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-2xl border-l-4 border border-border animate-rise transition-opacity duration-500",
+          completing && "opacity-0 pointer-events-none",
+          overdue
+            ? "border-l-red-500 bg-red-50/20 dark:bg-red-950/10 border-border/60"
+            : task.priority === "high"
+            ? "border-l-orange-400"
+            : "border-l-transparent",
+          task.completed && "opacity-40",
+        )}
+        style={{ animationDelay: `${index * 55}ms` }}
+      >
         {/* Swipe action strip */}
         <div className="absolute inset-y-0 right-0 flex items-stretch" style={{ width: 88 }}>
           <button
@@ -343,7 +398,7 @@ function FocusRow({
             <Pencil className="w-4 h-4" />
           </button>
           <button
-            onClick={() => { onDelete(task.id); }}
+            onClick={() => onDelete(task.id)}
             className="flex-1 flex items-center justify-center bg-red-500 text-white"
             aria-label="Delete"
           >
@@ -351,11 +406,11 @@ function FocusRow({
           </button>
         </div>
 
-        {/* Sliding row — must be fully opaque to hide action strip */}
+        {/* Sliding content — fully opaque to hide action strip */}
         <div
           className={cn(
-            "flex items-center gap-3 px-4 py-3 transition-transform duration-200 ease-out",
-            overdue ? "bg-red-50 dark:bg-red-950/70" : "bg-background",
+            "flex items-center gap-3 px-4 py-3.5 transition-transform duration-200 ease-out",
+            overdue ? "bg-red-50 dark:bg-red-950/60" : "bg-background",
           )}
           style={{ transform: actionsOpen ? "translateX(-88px)" : "translateX(0)" }}
           onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
@@ -372,10 +427,11 @@ function FocusRow({
             size="lg"
           />
           <div className="flex-1 min-w-0">
+            {/* Title — tap opens edit, NOT complete */}
             <p
-              onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); handleToggleComplete(); } }}
+              onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); setEditOpen(true); } }}
               className={cn(
-                "text-sm font-medium cursor-pointer",
+                "text-sm font-semibold leading-snug cursor-pointer hover:opacity-80 transition-opacity",
                 task.completed && "line-through text-muted-foreground",
                 overdue && !task.completed && "text-red-600 dark:text-red-400",
               )}
@@ -384,24 +440,24 @@ function FocusRow({
             </p>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               {task.group_name && (
-                <span className="text-[11px] text-muted-foreground">{task.group_name}</span>
+                <span className="text-[10px] text-muted-foreground/60 font-medium">{task.group_name}</span>
               )}
               {hasTimed && dueDate && (
                 <span className={cn(
-                  "flex items-center gap-0.5 text-[11px] font-medium",
-                  overdue ? "text-red-500" : isFuture ? "text-foreground" : "text-muted-foreground",
+                  "flex items-center gap-0.5 text-[10px] font-semibold",
+                  overdue ? "text-red-500" : isFuture ? "text-blue-500 dark:text-blue-400" : "text-muted-foreground",
                 )}>
                   <Clock className="w-3 h-3" />
                   {format(dueDate, "h:mm a")}
                   {!task.completed && (
-                    <span className="text-muted-foreground font-normal ml-1">
+                    <span className="text-muted-foreground/60 font-normal ml-0.5">
                       · {formatDistanceToNow(dueDate, { addSuffix: true })}
                     </span>
                   )}
                 </span>
               )}
               {overdue && !hasTimed && dueDate && (
-                <span className="text-[11px] text-red-500 font-medium">
+                <span className="text-[10px] text-red-500 font-semibold">
                   {formatDistanceToNow(dueDate, { addSuffix: true })}
                 </span>
               )}
@@ -415,9 +471,10 @@ function FocusRow({
             />
           )}
         </div>
-        {/* Pulsing ring — after sliding div so it renders above it */}
+
+        {/* Overdue pulsing ring */}
         {overdue && !task.completed && (
-          <div className="absolute inset-0 rounded-2xl border-2 border-red-500 animate-pulse pointer-events-none z-10" />
+          <div className="absolute inset-0 rounded-[calc(1rem-1px)] border-2 border-red-500 animate-pulse pointer-events-none z-10" />
         )}
       </div>
 

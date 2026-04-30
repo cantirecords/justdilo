@@ -7,6 +7,26 @@ import { cn } from "@/lib/utils";
 import IdeaEditModal from "./IdeaEditModal";
 import type { Idea } from "@/lib/types";
 
+const LS_KEY = "justdilo:ideaExpanded";
+
+function getExpandedState(id: string): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const saved = localStorage.getItem(LS_KEY);
+    const state = saved ? JSON.parse(saved) : {};
+    return state[id] !== false;
+  } catch { return true; }
+}
+
+function saveExpandedState(id: string, value: boolean) {
+  try {
+    const saved = localStorage.getItem(LS_KEY);
+    const state = saved ? JSON.parse(saved) : {};
+    state[id] = value;
+    localStorage.setItem(LS_KEY, JSON.stringify(state));
+  } catch {}
+}
+
 type Props = {
   idea: Idea;
   onDelete: (id: string) => void;
@@ -14,7 +34,7 @@ type Props = {
 };
 
 export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(() => getExpandedState(idea.id));
   const [editOpen, setEditOpen] = useState(false);
   const [pushed, setPushed] = useState<Set<number>>(new Set());
 
@@ -22,6 +42,12 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
   const hasInsights = idea.key_insights?.length > 0;
   const hasActions = idea.action_items?.length > 0;
   const hasTags = idea.tags?.length > 0;
+
+  function toggleExpanded() {
+    const next = !expanded;
+    setExpanded(next);
+    saveExpandedState(idea.id, next);
+  }
 
   async function quickPushTask(index: number) {
     if (pushed.has(index)) return;
@@ -36,7 +62,7 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
       });
       if (!res.ok) throw new Error();
       setPushed((prev) => new Set([...prev, index]));
-      toast.success("Added to tasks");
+      toast.success("Added to List → Someday bucket");
     } catch {
       toast.error("Couldn't add task");
     }
@@ -68,7 +94,7 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
               <Pencil className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => setExpanded((v) => !v)}
+              onClick={toggleExpanded}
               className="p-1 text-muted-foreground hover:text-foreground transition"
               aria-label={expanded ? "Collapse" : "Expand"}
             >
@@ -136,7 +162,7 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
                     <li key={i} className="flex items-center gap-2">
                       <div className="flex-1 flex items-start gap-2">
                         <span className={cn(
-                          "w-3.5 h-3.5 mt-0.5 rounded border flex-shrink-0 transition-colors",
+                          "w-3.5 h-3.5 mt-0.5 rounded border flex-shrink-0 transition-colors duration-300",
                           pushed.has(i) ? "bg-green-500 border-green-500" : "border-border",
                         )} />
                         <p className={cn(
@@ -150,7 +176,7 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
                         onClick={() => quickPushTask(i)}
                         disabled={pushed.has(i)}
                         className={cn(
-                          "flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 transition",
+                          "flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 transition whitespace-nowrap",
                           pushed.has(i)
                             ? "text-green-600 dark:text-green-400"
                             : "text-muted-foreground hover:text-foreground hover:bg-muted",
@@ -158,7 +184,7 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
                         title="Add as task"
                       >
                         <ArrowRight className="w-3 h-3" />
-                        {pushed.has(i) ? "Done" : "Task"}
+                        {pushed.has(i) ? "Added" : "Task"}
                       </button>
                     </li>
                   ))}
