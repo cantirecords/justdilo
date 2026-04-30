@@ -490,10 +490,6 @@ function FocusRow({
         overdue ? "border-red-500 bg-red-50/30 dark:bg-red-950/20" : "border-border bg-muted/20",
         task.completed && "opacity-50",
       )}>
-        {/* Pulsing red attention ring for overdue */}
-        {overdue && !task.completed && (
-          <div className="absolute inset-0 rounded-2xl border-2 border-red-500/50 animate-pulse pointer-events-none" />
-        )}
         {/* Swipe action strip */}
         <div className="absolute inset-y-0 right-0 flex items-stretch" style={{ width: 88 }}>
           <button
@@ -569,6 +565,10 @@ function FocusRow({
             </div>
           </div>
         </div>
+        {/* Pulsing ring — after sliding div so it renders above it */}
+        {overdue && !task.completed && (
+          <div className="absolute inset-0 rounded-2xl border-2 border-red-500 animate-pulse pointer-events-none z-10" />
+        )}
       </div>
 
       {editOpen && (
