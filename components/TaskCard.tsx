@@ -259,7 +259,7 @@ function Row({ task, onUpdate, onDelete }: { task: Task } & Omit<Props, "tasks" 
             />
 
             <span
-              onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); setEditOpen(true); } }}
+              onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); onUpdate(task.id, { completed: !task.completed }); } }}
               className={cn(
                 "flex-1 text-sm min-w-0",
                 task.completed ? "line-through text-muted-foreground" : "cursor-pointer",

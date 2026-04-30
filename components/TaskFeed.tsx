@@ -58,10 +58,19 @@ function SmartEmpty() {
 
 type CompletedBucket = "Completed Today" | "Completed This Week";
 
+const LS_COLLAPSE_KEY = "justdilo:listCollapsed";
+const DEFAULT_COLLAPSED: Record<Bucket | CompletedBucket, boolean> = {
+  Overdue: false, Today: false, Tomorrow: false, Upcoming: false, Someday: false,
+  "Completed Today": true, "Completed This Week": true,
+};
+
 function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete }: Props) {
-  const [collapsed, setCollapsed] = useState<Record<Bucket | CompletedBucket, boolean>>({
-    Overdue: false, Today: false, Tomorrow: false, Upcoming: false, Someday: false,
-    "Completed Today": true, "Completed This Week": true,
+  const [collapsed, setCollapsed] = useState<Record<Bucket | CompletedBucket, boolean>>(() => {
+    if (typeof window === "undefined") return DEFAULT_COLLAPSED;
+    try {
+      const saved = localStorage.getItem(LS_COLLAPSE_KEY);
+      return saved ? { ...DEFAULT_COLLAPSED, ...JSON.parse(saved) } : DEFAULT_COLLAPSED;
+    } catch { return DEFAULT_COLLAPSED; }
   });
 
   const { activeBuckets, completedBuckets } = useMemo(() => {
@@ -103,7 +112,11 @@ function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatch
   );
 
   function toggle(b: Bucket | CompletedBucket) {
-    setCollapsed((prev) => ({ ...prev, [b]: !prev[b] }));
+    setCollapsed((prev) => {
+      const next = { ...prev, [b]: !prev[b] };
+      try { localStorage.setItem(LS_COLLAPSE_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
   }
 
   function renderBucket(bucket: Bucket | CompletedBucket, groups: Record<string, Task[]>, isDone = false) {
@@ -308,7 +321,7 @@ function BoardCard({
         />
         <div className="flex-1 min-w-0">
           <p
-            onClick={() => setEditOpen(true)}
+            onClick={() => onUpdate(task.id, { completed: !task.completed })}
             className={cn("text-xs leading-snug cursor-pointer hover:opacity-70 transition-opacity", task.completed && "line-through text-muted-foreground")}
           >
             {task.title}
@@ -478,15 +491,26 @@ function FocusRow({
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [completing, setCompleting] = useState(false);
   const touchStartX = useRef(0);
   const hasTimed = task.due_date && hasSpecificTime(task.due_date);
   const dueDate = task.due_date ? parseISO(task.due_date) : null;
   const isFuture = dueDate && dueDate > new Date();
 
+  function handleToggleComplete() {
+    if (task.completed) {
+      onUpdate(task.id, { completed: false });
+      return;
+    }
+    setCompleting(true);
+    setTimeout(() => onUpdate(task.id, { completed: true }), 550);
+  }
+
   return (
     <>
       <div className={cn(
-        "relative overflow-hidden rounded-2xl border",
+        "relative overflow-hidden rounded-2xl border transition-opacity duration-500",
+        completing && "opacity-0 pointer-events-none",
         overdue ? "border-red-500 bg-red-50/30 dark:bg-red-950/20" : "border-border bg-muted/20",
         task.completed && "opacity-50",
       )}>
@@ -525,12 +549,12 @@ function FocusRow({
         >
           <CheckButton
             completed={task.completed}
-            onToggle={() => onUpdate(task.id, { completed: !task.completed })}
+            onToggle={handleToggleComplete}
             size="lg"
           />
           <div className="flex-1 min-w-0">
             <p
-              onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); setEditOpen(true); } }}
+              onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); handleToggleComplete(); } }}
               className={cn(
                 "text-sm font-medium cursor-pointer",
                 task.completed && "line-through text-muted-foreground",
@@ -564,6 +588,13 @@ function FocusRow({
               )}
             </div>
           </div>
+          {!task.completed && (
+            <RescheduleMenu
+              onReschedule={(date) => onUpdate(task.id, { due_date: date })}
+              iconSize="w-4 h-4"
+              alwaysVisible
+            />
+          )}
         </div>
         {/* Pulsing ring — after sliding div so it renders above it */}
         {overdue && !task.completed && (

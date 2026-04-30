@@ -21,9 +21,10 @@ type Props = {
   onReschedule: (date: string | null) => void;
   iconSize?: string;
   className?: string;
+  alwaysVisible?: boolean;
 };
 
-export default function RescheduleMenu({ onReschedule, iconSize = "w-3.5 h-3.5", className }: Props) {
+export default function RescheduleMenu({ onReschedule, iconSize = "w-3.5 h-3.5", className, alwaysVisible }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -45,7 +46,8 @@ export default function RescheduleMenu({ onReschedule, iconSize = "w-3.5 h-3.5",
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
         className={cn(
-          "opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition",
+          "text-muted-foreground hover:text-foreground transition",
+          !alwaysVisible && "opacity-0 group-hover:opacity-100",
           open && "opacity-100 text-foreground",
           className,
         )}
