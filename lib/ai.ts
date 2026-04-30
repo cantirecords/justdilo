@@ -46,7 +46,12 @@ export const TaskGroupSchema = z.object({
       name: z.string().nullable().optional().transform((v) => v ?? "General"),
       summary: z.string().optional().default(""),
       due: z.string().nullable().optional(),
-      tasks: z.array(z.string()).default([]),
+      tasks: z.array(
+        z.union([
+          z.string().transform((t) => ({ title: t, note: null as string | null })),
+          z.object({ title: z.string(), note: z.string().nullable().optional().default(null) }),
+        ])
+      ).default([]),
       priority: z
         .union([z.enum(["low","med","high"]), z.string()])
         .nullable()
@@ -124,6 +129,12 @@ For CREATE_TASK: populate groups[]. Leave target fields null/empty.
 ━━ CATEGORY DETECTION ━━
 personal, business, health, finance, social, home, travel, shopping. Default: personal.
 
+━━ PER-TASK NOTES ━━
+Each task object must have a "title" and a short "note" (1 sentence, actionable context).
+- "Cancel Splice subscription" → note: "Do after downloading content and using credits."
+- "Send invoice to Marc" → note: "Include project hours and rate agreed on last call."
+- Notes must add context, not just repeat the title. If no useful context, set note: null.
+
 ━━ RESPONSE FORMAT ━━
 Return ONLY this exact JSON — no markdown, no explanation:
 {
@@ -144,7 +155,10 @@ Return ONLY this exact JSON — no markdown, no explanation:
       "priority": "high" | "med" | "low" | null,
       "recurring": null,
       "category": "business",
-      "tasks": ["Task one", "Task two"]
+      "tasks": [
+        {"title": "Task one", "note": "Brief context or null"},
+        {"title": "Task two", "note": null}
+      ]
     }
   ]
 }`;

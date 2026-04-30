@@ -486,7 +486,6 @@ function FocusRow({
   const [editOpen, setEditOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const touchStartX = useRef(0);
-  const energy = detectEnergy(task.title);
   const hasTimed = task.due_date && hasSpecificTime(task.due_date);
   const dueDate = task.due_date ? parseISO(task.due_date) : null;
   const isFuture = dueDate && dueDate > new Date();
@@ -494,8 +493,10 @@ function FocusRow({
   return (
     <>
       <div className={cn(
-        "relative overflow-hidden rounded-2xl border",
-        overdue ? "border-red-400/50 bg-red-50/30 dark:bg-red-950/20" : "border-border bg-muted/20",
+        "relative overflow-hidden rounded-2xl border transition-shadow",
+        overdue
+          ? "border-red-500 bg-red-50/30 dark:bg-red-950/20 shadow-[0_0_0_1px] shadow-red-500/30"
+          : "border-border bg-muted/20",
         task.completed && "opacity-50",
       )}>
         {/* Swipe action strip */}
@@ -572,16 +573,9 @@ function FocusRow({
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {task.priority === "high" && !task.completed && (
-              <span className="text-[9px] uppercase tracking-wider text-red-500 font-bold">Urgent</span>
-            )}
-            {energy && !task.completed && (
-              <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium", energyConfig[energy].color)}>
-                {energyConfig[energy].label}
-              </span>
-            )}
-          </div>
+          {task.priority === "high" && !task.completed && (
+            <span className="text-[9px] uppercase tracking-wider text-red-500 font-bold flex-shrink-0">!</span>
+          )}
         </div>
       </div>
 

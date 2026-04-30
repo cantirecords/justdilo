@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -77,8 +78,8 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+  const modal = (
+    <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
 
       <div className="relative w-full sm:max-w-lg bg-background rounded-t-3xl sm:rounded-2xl shadow-2xl border border-border overflow-hidden">
@@ -222,4 +223,5 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
       </div>
     </div>
   );
+  return typeof document !== "undefined" ? createPortal(modal, document.body) : null;
 }

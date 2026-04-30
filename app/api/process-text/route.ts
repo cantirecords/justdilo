@@ -150,20 +150,25 @@ export async function POST(req: Request) {
   let duplicatesSkipped = 0;
   const rows = groups.flatMap((g) => {
     const resolvedGroupName = normalizeGroupName(g.name ?? "General", existingGroups);
-    return g.tasks.filter((title) => {
+    return g.tasks.filter((t) => {
+      const title = typeof t === "string" ? t : t.title;
       if (isDuplicate(title, existingTitles)) { duplicatesSkipped++; return false; }
       return true;
-    }).map((title) => ({
-      user_id: user.id,
-      capture_id: capture?.id ?? null,
-      title,
-      group_name: resolvedGroupName,
-      summary: g.summary || null,
-      due_date: resolveDue(g.due ?? null, utcOffset)?.toISOString() ?? null,
-      priority: g.priority ?? null,
-      category: g.category ?? null,
-      completed: false,
-    }));
+    }).map((t) => {
+      const title = typeof t === "string" ? t : t.title;
+      const note = typeof t === "object" && t.note ? t.note : null;
+      return {
+        user_id: user.id,
+        capture_id: capture?.id ?? null,
+        title,
+        group_name: resolvedGroupName,
+        summary: note || g.summary || null,
+        due_date: resolveDue(g.due ?? null, utcOffset)?.toISOString() ?? null,
+        priority: g.priority ?? null,
+        category: g.category ?? null,
+        completed: false,
+      };
+    });
   });
 
   let inserted: any[] = [];
