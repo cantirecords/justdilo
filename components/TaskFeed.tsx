@@ -10,7 +10,6 @@ import CheckButton from "./CheckButton";
 import RescheduleMenu from "./RescheduleMenu";
 import StatsCard from "./StatsCard";
 import { cn } from "@/lib/utils";
-import { detectEnergy, energyConfig } from "@/lib/energy";
 import TaskCard from "./TaskCard";
 import TaskEditModal from "./TaskEditModal";
 import ProgressRing from "./ProgressRing";
@@ -293,7 +292,6 @@ function BoardCard({
   onDelete: (id: string) => void;
 }) {
   const [editOpen, setEditOpen] = useState(false);
-  const energy = detectEnergy(task.title);
   return (
     <>
       <div
@@ -322,11 +320,6 @@ function BoardCard({
                 {hasSpecificTime(task.due_date)
                   ? format(parseISO(task.due_date), "MMM d · h:mma")
                   : format(parseISO(task.due_date), "MMM d")}
-              </span>
-            )}
-            {energy && !task.completed && (
-              <span className={cn("text-[9px] px-1 py-0.5 rounded-full font-medium", energyConfig[energy].color)}>
-                {energyConfig[energy].label}
               </span>
             )}
           </div>
@@ -493,12 +486,14 @@ function FocusRow({
   return (
     <>
       <div className={cn(
-        "relative overflow-hidden rounded-2xl border transition-shadow",
-        overdue
-          ? "border-red-500 bg-red-50/30 dark:bg-red-950/20 shadow-[0_0_0_1px] shadow-red-500/30"
-          : "border-border bg-muted/20",
+        "relative overflow-hidden rounded-2xl border",
+        overdue ? "border-red-500 bg-red-50/30 dark:bg-red-950/20" : "border-border bg-muted/20",
         task.completed && "opacity-50",
       )}>
+        {/* Pulsing red attention ring for overdue */}
+        {overdue && !task.completed && (
+          <div className="absolute inset-0 rounded-2xl border-2 border-red-500/50 animate-pulse pointer-events-none" />
+        )}
         {/* Swipe action strip */}
         <div className="absolute inset-y-0 right-0 flex items-stretch" style={{ width: 88 }}>
           <button
@@ -573,9 +568,6 @@ function FocusRow({
               )}
             </div>
           </div>
-          {task.priority === "high" && !task.completed && (
-            <span className="text-[9px] uppercase tracking-wider text-red-500 font-bold flex-shrink-0">!</span>
-          )}
         </div>
       </div>
 

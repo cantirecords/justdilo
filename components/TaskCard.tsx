@@ -3,7 +3,6 @@ import { useRef, useState } from "react";
 import { Trash2, Clock, ChevronDown, Pencil, Plus, Check, MoreHorizontal } from "lucide-react";
 import { format, isToday, isTomorrow, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
-import { detectEnergy, energyConfig } from "@/lib/energy";
 import { CATEGORY_CONFIG } from "@/lib/categories";
 import ProgressRing from "./ProgressRing";
 import CheckButton from "./CheckButton";
@@ -206,7 +205,6 @@ function Row({ task, onUpdate, onDelete }: { task: Task } & Omit<Props, "tasks" 
   const [expanded, setExpanded] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const touchStartX = useRef(0);
-  const energy = detectEnergy(task.title);
   const hasNote = Boolean(task.summary?.trim());
 
   function handleTouchStart(e: React.TouchEvent) {
@@ -280,11 +278,6 @@ function Row({ task, onUpdate, onDelete }: { task: Task } & Omit<Props, "tasks" 
               </button>
             )}
 
-            {energy && !task.completed && (
-              <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0", energyConfig[energy].color)}>
-                {energyConfig[energy].label}
-              </span>
-            )}
           </div>
 
           {expanded && hasNote && (
