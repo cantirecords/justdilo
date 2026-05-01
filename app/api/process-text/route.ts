@@ -156,13 +156,15 @@ export async function POST(req: Request) {
     }).map((t) => {
       const title = typeof t === "string" ? t : t.title;
       const note = typeof t === "object" && t.note ? t.note : null;
+      const taskDue = typeof t === "object" && t.due ? t.due : null;
+      const due_date = resolveDue(taskDue ?? g.due ?? null, utcOffset)?.toISOString() ?? null;
       return {
         user_id: user.id,
         capture_id: capture?.id ?? null,
         title,
         group_name: resolvedGroupName,
         summary: note || g.summary || null,
-        due_date: resolveDue(g.due ?? null, utcOffset)?.toISOString() ?? null,
+        due_date,
         priority: g.priority ?? null,
         category: g.category ?? null,
         completed: false,

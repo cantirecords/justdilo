@@ -48,8 +48,12 @@ export const TaskGroupSchema = z.object({
       due: z.string().nullable().optional(),
       tasks: z.array(
         z.union([
-          z.string().transform((t) => ({ title: t, note: null as string | null })),
-          z.object({ title: z.string(), note: z.string().nullable().optional().default(null) }),
+          z.string().transform((t) => ({ title: t, note: null as string | null, due: null as string | null })),
+          z.object({
+            title: z.string(),
+            note: z.string().nullable().optional().default(null),
+            due: z.string().nullable().optional().default(null),
+          }),
         ])
       ).default([]),
       priority: z
@@ -126,7 +130,14 @@ If the user says "comprar comida" → title MUST be "Comprar comida" NOT "Buy fo
 - Group related tasks by person/project/context.
 - Write overall_summary (1-2 sentences) IN THE USER'S LANGUAGE.
 - Keep task titles concise and verb-first. Spanish: "Pagar factura". English: "Send invoice".
-- "due" must capture FULL time: "today at 3pm", "tomorrow at 4pm". If no date/time → null.
+- Group "due": the main date/time anchor for the group (e.g. "tomorrow at 7pm").
+- Task "due": if a specific subtask has its OWN time, set it on the task. Otherwise null (inherits group).
+  Example: user says "levantarme a las 7am, comprar regalo a las 9am, recoger pastel a las 12pm, fiesta a las 7pm"
+  → group due: "tomorrow at 7pm"
+  → task "Levantarme": due "tomorrow at 7am"
+  → task "Comprar regalo": due "tomorrow at 9am"
+  → task "Recoger pastel": due "tomorrow at 12pm"
+  → task "Iniciar fiesta": due null (inherits group 7pm)
 - Detect priority: urgent/ASAP/important/critical/urgente/importante → "high". Otherwise null.
 - Detect recurring: "every Monday", "daily", "weekly", "cada lunes", "diario" → set recurring string. Otherwise null.
 - If unclear noise or no actionable content → groups: [].
@@ -162,8 +173,8 @@ Return ONLY this exact JSON — no markdown, no explanation:
       "recurring": null,
       "category": "business",
       "tasks": [
-        {"title": "Task one", "note": "Brief context or null"},
-        {"title": "Task two", "note": null}
+        {"title": "Task one", "note": "Brief context or null", "due": "tomorrow at 7am"},
+        {"title": "Task two", "note": null, "due": null}
       ]
     }
   ]
