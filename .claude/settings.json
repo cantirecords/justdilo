@@ -32,7 +32,9 @@
       "Bash(vercel --prod --yes)",
       "Bash(git commit *)",
       "Bash(git push *)",
-      "Bash(vercel deploy *)"
+      "Bash(vercel deploy *)",
+      "Bash(npx web-push *)",
+      "Bash(curl -s http://localhost:3000/api/push/notify)"
     ],
     "additionalDirectories": [
       "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/public",

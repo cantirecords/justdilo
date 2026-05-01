@@ -1,21 +1,22 @@
 import { NextResponse } from "next/server";
 import webpush from "web-push";
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { isToday, parseISO } from "date-fns";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT!,
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!,
-  );
+  try {
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT!,
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+      process.env.VAPID_PRIVATE_KEY!,
+    );
+  } catch (e: any) {
+    return NextResponse.json({ error: "VAPID config error: " + e.message }, { status: 500 });
+  }
 
-  const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+  const supabaseAdmin = createSupabaseAdmin();
   // Allow Vercel cron or manual trigger with secret header
   const auth = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
@@ -24,8 +25,9 @@ export async function GET(req: Request) {
   }
 
   // Get all push subscriptions
-  const { data: subs } = await supabaseAdmin.from("push_subscriptions").select("*");
-  if (!subs?.length) return NextResponse.json({ sent: 0 });
+  const { data: subs, error: subsError } = await supabaseAdmin.from("push_subscriptions").select("*");
+  if (subsError) return NextResponse.json({ error: "DB error: " + subsError.message }, { status: 500 });
+  if (!subs?.length) return NextResponse.json({ sent: 0, message: "no subscriptions" });
 
   let sent = 0;
   const staleIds: string[] = [];

@@ -53,6 +53,40 @@ export default function Dashboard({ initialTasks, userEmail }: { initialTasks: T
   const [, start] = useTransition();
   const { speak } = useTTS();
 
+  // 1-hour warning — client-side scheduler (runs while app is open)
+  useEffect(() => {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const now = Date.now();
+    const notified = new Set<string>(
+      JSON.parse(sessionStorage.getItem("justdilo:notified1h") ?? "[]"),
+    );
+
+    for (const task of tasks) {
+      if (task.completed || !task.due_date) continue;
+      const due = new Date(task.due_date);
+      const isMidnight = due.getHours() === 23 && due.getMinutes() === 59;
+      if (isMidnight) continue;
+      const msUntil1h = due.getTime() - 60 * 60 * 1000 - now;
+      if (msUntil1h < 0 || msUntil1h > 4 * 60 * 60 * 1000) continue; // only schedule if within 4h
+      if (notified.has(task.id)) continue;
+
+      const t = setTimeout(async () => {
+        const reg = await navigator.serviceWorker.ready;
+        const timeStr = due.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+        reg.showNotification("In 1 hour ⏰", {
+          body: `${task.title}${task.group_name ? ` · ${task.group_name}` : ""} — ${timeStr}. Ready?`,
+          icon: "/icons/icon-192.png",
+          data: { url: "/" },
+        });
+        notified.add(task.id);
+        sessionStorage.setItem("justdilo:notified1h", JSON.stringify([...notified]));
+      }, msUntil1h);
+      timers.push(t);
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [tasks]);
+
   // Supabase Realtime — sync tasks across devices
   useEffect(() => {
     const supabase = createSupabaseBrowser();

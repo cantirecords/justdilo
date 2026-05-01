@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useRef, useState } from "react";
-import { isToday, isTomorrow, isPast, parseISO, format } from "date-fns";
+import { isToday, isTomorrow, isPast, parseISO, format, differenceInDays, differenceInHours } from "date-fns";
 import {
   LayoutList, Crosshair, BarChart2, Lightbulb,
   Trash2, Clock, ChevronDown, AlertTriangle, Pencil,
@@ -290,12 +290,17 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
 
       {/* ── Overdue ── */}
       {overdue.length > 0 && (
-        <div className="space-y-2.5">
-          <div className="flex items-center gap-1.5 px-0.5">
-            <AlertTriangle className="w-3 h-3 text-red-500" />
-            <p className="text-[10px] uppercase tracking-widest font-bold text-red-500">
-              Overdue · {overdue.length}
-            </p>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-0.5">
+            <div className="flex items-center gap-1.5">
+              <AlertTriangle className="w-3 h-3 text-red-500" />
+              <p className="text-[10px] uppercase tracking-widest font-bold text-red-500">
+                Overdue
+              </p>
+            </div>
+            <span className="text-[10px] font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5 tabular-nums">
+              {overdue.length}
+            </span>
           </div>
           {overdue.map((t, i) => (
             <FocusRow key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} overdue index={i} />
@@ -326,6 +331,26 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
   );
 }
 
+const PRIORITY_DOT: Record<string, { bg: string; label: string }> = {
+  high: { bg: "bg-red-500",    label: "High"   },
+  med:  { bg: "bg-amber-400",  label: "Medium" },
+  low:  { bg: "bg-slate-400",  label: "Low"    },
+};
+
+const CATEGORY_EMOJI: Record<string, string> = {
+  personal: "👤", business: "💼", health: "🏃", finance: "💰",
+  social: "💬", home: "🏠", travel: "✈️", shopping: "🛍️",
+};
+
+function overdueLabelText(dueDate: Date): string {
+  const now = new Date();
+  const days = differenceInDays(now, dueDate);
+  if (days >= 1) return `${days}d overdue`;
+  const hrs = differenceInHours(now, dueDate);
+  if (hrs >= 1) return `${hrs}h overdue`;
+  return "overdue";
+}
+
 function FocusRow({
   task,
   onUpdate,
@@ -345,28 +370,29 @@ function FocusRow({
   const hasTimed = task.due_date && hasSpecificTime(task.due_date);
   const dueDate = task.due_date ? parseISO(task.due_date) : null;
   const isFuture = dueDate && dueDate > new Date();
+  const isOverdueActive = overdue && !task.completed;
 
-  // Direct toggle — no fade-out. Completed tasks stay visible with strikethrough.
   function handleToggleComplete() {
     onUpdate(task.id, { completed: !task.completed });
   }
 
-  const overdueGlow = "0 0 0 1.5px rgba(239,68,68,0.7), 0 0 24px rgba(239,68,68,0.22), 0 4px 12px rgba(0,0,0,0.10)";
-  const normalShadow = "0 0 0 1px rgba(120,120,180,0.10), 0 4px 16px rgba(0,0,0,0.09), 0 1px 3px rgba(0,0,0,0.05)";
+  const shadow = "0 0 0 1px rgba(120,120,180,0.10), 0 4px 16px rgba(0,0,0,0.09), 0 1px 3px rgba(0,0,0,0.05)";
 
   return (
     <>
       <div
         className={cn(
-          "relative overflow-hidden rounded-2xl border bg-background animate-rise transition-all duration-300",
-          overdue && !task.completed ? "border-red-400/50" : "border-border/60",
+          "relative overflow-hidden rounded-2xl border bg-card animate-rise transition-all duration-300",
+          isOverdueActive ? "border-red-500/20" : "border-border/60",
           task.completed && "opacity-40",
         )}
-        style={{
-          animationDelay: `${index * 55}ms`,
-          boxShadow: overdue && !task.completed ? overdueGlow : normalShadow,
-        }}
+        style={{ animationDelay: `${index * 55}ms`, boxShadow: shadow }}
       >
+        {/* Left accent strip for overdue */}
+        {isOverdueActive && (
+          <div className="absolute left-0 inset-y-0 w-[3px] bg-red-500 rounded-l-2xl z-10" />
+        )}
+
         {/* Swipe action strip */}
         <div className="absolute inset-y-0 right-0 flex items-stretch" style={{ width: 88 }}>
           <button
@@ -387,11 +413,8 @@ function FocusRow({
 
         {/* Sliding content */}
         <div
-          className={cn(
-            "flex items-center gap-3.5 px-4 py-4 transition-transform duration-200 ease-out",
-            overdue && !task.completed ? "bg-red-50/60 dark:bg-red-950/40" : "bg-background",
-          )}
-          style={{ transform: actionsOpen ? "translateX(-88px)" : "translateX(0)" }}
+          className="flex items-start gap-3 px-4 py-3.5 transition-transform duration-200 ease-out"
+          style={{ transform: actionsOpen ? "translateX(-88px)" : "translateX(0)", paddingLeft: isOverdueActive ? 20 : 16 }}
           onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
           onTouchEnd={(e) => {
             const delta = e.changedTouches[0].clientX - touchStartX.current;
@@ -400,62 +423,88 @@ function FocusRow({
           }}
           onClick={() => { if (actionsOpen) setActionsOpen(false); }}
         >
-          <CheckButton completed={task.completed} onToggle={handleToggleComplete} size="lg" />
+          <div className="mt-0.5">
+            <CheckButton completed={task.completed} onToggle={handleToggleComplete} size="lg" />
+          </div>
 
           <div className="flex-1 min-w-0">
-            <p
-              onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); setEditOpen(true); } }}
-              className={cn(
-                "text-sm font-semibold leading-snug cursor-pointer",
-                task.completed ? "line-through text-muted-foreground" : "text-foreground",
-                overdue && !task.completed && "text-red-600 dark:text-red-400",
+            {/* Title row */}
+            <div className="flex items-start justify-between gap-2">
+              <p
+                onClick={(e) => { if (!actionsOpen) { e.stopPropagation(); setEditOpen(true); } }}
+                className={cn(
+                  "text-[13px] font-semibold leading-snug cursor-pointer flex-1",
+                  task.completed ? "line-through text-muted-foreground" : "text-foreground",
+                )}
+              >
+                {task.title}
+              </p>
+              {/* Overdue pill */}
+              {isOverdueActive && dueDate && (
+                <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide bg-red-500/15 text-red-500 rounded-md px-1.5 py-0.5 mt-0.5">
+                  {overdueLabelText(dueDate)}
+                </span>
               )}
-            >
-              {task.title}
-            </p>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            </div>
+
+            {/* Meta row 1: group + category + priority */}
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              {task.priority && !task.completed && (() => {
+                const p = PRIORITY_DOT[task.priority];
+                return p ? (
+                  <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground">
+                    <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", p.bg)} />
+                    {p.label}
+                  </span>
+                ) : null;
+              })()}
+              {task.priority && task.group_name && !task.completed && (
+                <span className="text-muted-foreground/30 text-[10px]">·</span>
+              )}
               {task.group_name && (
                 <span className="text-[10px] text-muted-foreground/60 font-medium">{task.group_name}</span>
               )}
+              {task.category && (
+                <span className="text-[10px] text-muted-foreground/50 ml-0.5">
+                  {CATEGORY_EMOJI[task.category] ?? ""} {task.category}
+                </span>
+              )}
+            </div>
+
+            {/* Meta row 2: time info */}
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               {hasTimed && dueDate && (
                 <span className={cn(
                   "flex items-center gap-0.5 text-[10px] font-semibold",
-                  overdue ? "text-red-500" : isFuture ? "text-blue-500 dark:text-blue-400" : "text-muted-foreground",
+                  isOverdueActive ? "text-red-500" : isFuture ? "text-blue-500 dark:text-blue-400" : "text-muted-foreground",
                 )}>
                   <Clock className="w-3 h-3" />
                   {format(dueDate, "h:mm a")}
-                  {!task.completed && (
+                  {!task.completed && !isOverdueActive && (
                     <span className="text-muted-foreground/50 font-normal ml-0.5">
                       · {formatDistanceToNow(dueDate, { addSuffix: true })}
                     </span>
                   )}
                 </span>
               )}
-              {overdue && !hasTimed && dueDate && (
-                <span className="text-[10px] text-red-500 font-semibold">
-                  {formatDistanceToNow(dueDate, { addSuffix: true })}
+              {!hasTimed && dueDate && !isOverdueActive && !task.completed && (
+                <span className="text-[10px] text-muted-foreground/50">
+                  {format(dueDate, "MMM d")}
                 </span>
               )}
               {task.recurring_type && (
-                <span className="text-[10px] text-muted-foreground/50">↻ {task.recurring_type}</span>
+                <span className="text-[10px] text-muted-foreground/40">↻ {task.recurring_type}</span>
               )}
             </div>
+
+            {/* Summary */}
             {task.summary && !task.completed && (
-              <p className="text-[11px] text-muted-foreground/60 mt-1 leading-relaxed line-clamp-2">
+              <p className="text-[11px] text-muted-foreground/55 mt-1.5 leading-relaxed line-clamp-2 border-l-2 border-border/40 pl-2">
                 {task.summary}
               </p>
             )}
           </div>
-
         </div>
-
-        {/* Red glow ring for overdue — pulsing animation */}
-        {overdue && !task.completed && (
-          <div
-            className="absolute inset-0 rounded-2xl pointer-events-none z-10 animate-pulse"
-            style={{ boxShadow: "inset 0 0 0 1.5px rgba(239,68,68,0.65)" }}
-          />
-        )}
       </div>
 
       {editOpen && (

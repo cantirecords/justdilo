@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase/server";
+import { sendPushToUser } from "@/lib/push";
+import { detectSpanish } from "@/lib/push-messages";
 
 export const runtime = "nodejs";
 
@@ -61,6 +63,9 @@ export async function POST(
     return NextResponse.json({ error: "You can't share with yourself" }, { status: 400 });
   }
 
+  const { data: ideaData } = await supabase
+    .from("ideas").select("title").eq("id", id).single();
+
   const { error } = await supabase.from("idea_shares").insert({
     idea_id: id,
     owner_id: user.id,
@@ -73,6 +78,18 @@ export async function POST(
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  // Instant push to the recipient
+  const ideaTitle = ideaData?.title ?? "an idea";
+  const sharerName = user.email?.split("@")[0] ?? "Someone";
+  const spanish = detectSpanish([ideaTitle]);
+  sendPushToUser(profile.id, {
+    title: spanish ? "Nueva idea compartida 💡" : "New shared idea 💡",
+    body: spanish
+      ? `${sharerName} compartió contigo: "${ideaTitle}"`
+      : `${sharerName} shared with you: "${ideaTitle}"`,
+    url: "/",
+  }).catch(() => {}); // fire-and-forget, don't block the response
 
   return NextResponse.json({ collaborator: { id: profile.id, email: profile.email } });
 }
