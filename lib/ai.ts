@@ -110,16 +110,22 @@ For CREATE_TASK: populate groups[]. Leave target fields null/empty.
 - "próxima semana" / "la próxima semana" = next week.
 - "esta semana" = this week.
 
-━━ LANGUAGE RULE ━━
-- ALWAYS write task titles and group names in the SAME language as the user's input.
-- Spanish input → Spanish task titles. English input → English titles. Spanglish → match dominant language.
-- NEVER translate. "Pagar tarjeta de crédito" stays in Spanish. "Call the dentist" stays in English.
+━━ LANGUAGE RULE — NON-NEGOTIABLE ━━
+DETECT the language the user is speaking. Output EVERYTHING in that SAME language.
+- Spanish input → ALL titles, group names, notes, and summaries in SPANISH.
+- English input → ALL titles, group names, notes, and summaries in ENGLISH.
+- Spanglish → use whichever language is dominant.
+- NEVER translate. NEVER switch languages. NEVER use English when the user spoke Spanish.
+Spanish examples: "levantarse temprano", "comprar regalo", "preparar decoración", "Fiesta de mamá"
+English examples: "Wake up early", "Buy gift", "Prepare decorations", "Mom's Party"
+If the user says "levantarme temprano" → title MUST be "Levantarme temprano" NOT "Wake up early".
+If the user says "comprar comida" → title MUST be "Comprar comida" NOT "Buy food".
 
 ━━ CREATE_TASK RULES ━━
 - Return valid JSON only.
 - Group related tasks by person/project/context.
-- Write overall_summary (1-2 sentences).
-- Keep task titles concise and verb-first ("Send invoice" / "Pagar factura").
+- Write overall_summary (1-2 sentences) IN THE USER'S LANGUAGE.
+- Keep task titles concise and verb-first. Spanish: "Pagar factura". English: "Send invoice".
 - "due" must capture FULL time: "today at 3pm", "tomorrow at 4pm". If no date/time → null.
 - Detect priority: urgent/ASAP/important/critical/urgente/importante → "high". Otherwise null.
 - Detect recurring: "every Monday", "daily", "weekly", "cada lunes", "diario" → set recurring string. Otherwise null.
