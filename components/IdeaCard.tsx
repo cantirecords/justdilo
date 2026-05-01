@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { format, parseISO, addDays, nextMonday } from "date-fns";
-import { Trash2, ChevronDown, Lightbulb, ListChecks, Pencil, ArrowRight, Calendar, Users } from "lucide-react";
+import { format, parseISO, addDays, nextMonday, formatDistanceToNow } from "date-fns";
+import { Trash2, ChevronDown, Lightbulb, ListChecks, Pencil, ArrowRight, Calendar, Users, Mic, MicOff, Plus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import IdeaEditModal from "./IdeaEditModal";
@@ -28,6 +28,21 @@ function saveExpandedState(id: string, value: boolean) {
   } catch {}
 }
 
+// Deterministic color from a string — cycles through 6 hues
+function avatarColor(name: string): string {
+  const colors = [
+    "bg-blue-500/20 text-blue-500",
+    "bg-purple-500/20 text-purple-500",
+    "bg-green-500/20 text-green-500",
+    "bg-orange-500/20 text-orange-500",
+    "bg-pink-500/20 text-pink-500",
+    "bg-teal-500/20 text-teal-500",
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+}
+
 type Props = {
   idea: Idea;
   onDelete: (id: string) => void;
@@ -41,6 +56,14 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
   const [pushed, setPushed] = useState<Set<number>>(new Set());
   const [datePicker, setDatePicker] = useState<number | null>(null);
   const [localCollaborators, setLocalCollaborators] = useState<IdeaCollaborator[]>(idea.collaborators ?? []);
+
+  // Voice append state
+  const [appendOpen, setAppendOpen] = useState(false);
+  const [appendRecording, setAppendRecording] = useState(false);
+  const [appendProcessing, setAppendProcessing] = useState(false);
+  const appendMediaRef = useRef<MediaRecorder | null>(null);
+  const appendChunksRef = useRef<Blob[]>([]);
+
   const datePickerRef = useRef<HTMLDivElement>(null);
 
   const isOwner = idea.is_owner !== false;
@@ -97,9 +120,53 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
     }
   }
 
+  async function startAppendRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      appendChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) appendChunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setAppendRecording(false);
+        setAppendOpen(false);
+        const blob = new Blob(appendChunksRef.current, { type: "audio/webm" });
+        const form = new FormData();
+        form.append("audio", blob, "append.webm");
+        setAppendProcessing(true);
+        try {
+          const res = await fetch(`/api/ideas/${idea.id}/append`, { method: "POST", body: form });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          onUpdate({ ...data.idea, is_owner: idea.is_owner, collaborators: idea.collaborators });
+          toast.success("Idea updated!");
+        } catch (e: any) {
+          toast.error(e.message || "Couldn't append to idea");
+        } finally {
+          setAppendProcessing(false);
+        }
+      };
+      mr.start();
+      appendMediaRef.current = mr;
+      setAppendRecording(true);
+    } catch {
+      toast.error("Microphone access denied");
+    }
+  }
+
+  function stopAppendRecording() {
+    appendMediaRef.current?.stop();
+  }
+
+  const editedBy = idea.last_edited_by_nickname;
+  const editedAt = idea.last_edited_at;
+
   return (
     <>
-      <div className="rounded-2xl border border-border bg-muted/20 overflow-hidden animate-rise">
+      <div className={cn(
+        "rounded-2xl border border-border bg-muted/20 overflow-hidden animate-rise",
+        appendProcessing && "opacity-60 pointer-events-none",
+      )}>
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
           <div className="flex-1 min-w-0">
@@ -227,7 +294,7 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
                           {item}
                         </p>
                       </div>
-                        <div className="relative flex-shrink-0">
+                      <div className="relative flex-shrink-0">
                         <button
                           onClick={() => { if (!pushed.has(i)) setDatePicker(datePicker === i ? null : i); }}
                           disabled={pushed.has(i)}
@@ -273,6 +340,65 @@ export default function IdeaCard({ idea, onDelete, onUpdate }: Props) {
                     #{tag}
                   </span>
                 ))}
+              </div>
+            )}
+
+            {/* Voice append */}
+            <div className="pt-1 border-t border-border/30">
+              {appendProcessing ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground py-1">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Merging new content…
+                </div>
+              ) : appendRecording ? (
+                <button
+                  onClick={stopAppendRecording}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-red-500 text-white animate-pulse"
+                >
+                  <MicOff className="w-3.5 h-3.5" />
+                  Recording… tap to stop
+                </button>
+              ) : appendOpen ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={startAppendRecording}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-muted text-muted-foreground hover:text-foreground transition"
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    Tap to record
+                  </button>
+                  <button
+                    onClick={() => setAppendOpen(false)}
+                    className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAppendOpen(true)}
+                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add more
+                </button>
+              )}
+            </div>
+
+            {/* Edit attribution */}
+            {editedBy && editedAt && (
+              <div className="flex items-center gap-1.5 pt-0.5">
+                <span className={cn(
+                  "w-4 h-4 rounded-full text-[8px] font-bold flex items-center justify-center flex-shrink-0 uppercase",
+                  avatarColor(editedBy),
+                )}>
+                  {editedBy.charAt(0)}
+                </span>
+                <span className="text-[10px] text-muted-foreground/50">
+                  Edited by <span className="text-muted-foreground/70 font-medium">{editedBy}</span>
+                  {" · "}
+                  {formatDistanceToNow(parseISO(editedAt), { addSuffix: true })}
+                </span>
               </div>
             )}
           </div>

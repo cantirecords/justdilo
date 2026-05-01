@@ -18,9 +18,21 @@ export async function PATCH(
   const patch = Object.fromEntries(Object.entries(body).filter(([k]) => PATCHABLE.has(k)));
   if (!Object.keys(patch).length) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("nickname, email")
+    .eq("id", user.id)
+    .single();
+  const nickname = profile?.nickname || profile?.email?.split("@")[0] || "Someone";
+
   const { data, error } = await supabase
     .from("ideas")
-    .update(patch)
+    .update({
+      ...patch,
+      last_edited_by_id: user.id,
+      last_edited_at: new Date().toISOString(),
+      last_edited_by_nickname: nickname,
+    })
     .eq("id", id)
     .select()
     .single();

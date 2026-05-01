@@ -322,50 +322,55 @@ export function resolveDue(
   const now = new Date();
   const lower = due.toLowerCase().trim();
 
-  function applyTime(d: Date, time: { hours: number; minutes: number } | null): Date {
-    const out = new Date(d);
-    // null = no explicit time. Use 23:59 local as sentinel so undated tasks
-    // sort AFTER timed tasks and never collide with a real scheduled hour.
+  // Derive the user's local "now" by shifting UTC by their offset.
+  // utcOffsetMinutes = -getTimezoneOffset() from client (e.g. -360 for UTC-6).
+  // local ms = UTC ms + offset*60*1000, so local = UTC + offset.
+  const localNow = new Date(now.getTime() + utcOffsetMinutes * 60_000);
+
+  // Midnight of today in the user's local timezone, expressed as UTC coordinates.
+  const localTodayMidnight = new Date(Date.UTC(
+    localNow.getUTCFullYear(),
+    localNow.getUTCMonth(),
+    localNow.getUTCDate(),
+  ));
+
+  // Apply local hours to a local-midnight base, then convert to real UTC.
+  // UTC = local - offset  →  realUTC = localMs - utcOffsetMinutes * 60_000
+  function applyTime(localMidnight: Date, time: { hours: number; minutes: number } | null): Date {
+    // null = no explicit time → 23:59 local sentinel (sorts after timed tasks)
     const { hours, minutes } = time ?? { hours: 23, minutes: 59 };
-    const utcH = hours - utcOffsetMinutes / 60;
-    out.setUTCHours(utcH, minutes, 0, 0);
-    return out;
+    const localMs = localMidnight.getTime() + hours * 3_600_000 + minutes * 60_000;
+    return new Date(localMs - utcOffsetMinutes * 60_000);
   }
 
   const time = extractTime(lower);
-  const base = new Date(now);
+  const localDayOfWeek = localNow.getUTCDay();
 
   const hasTomorrow = lower.includes("tomorrow") || lower.includes("mañana");
   const hasToday = lower.includes("today") || lower.includes("hoy");
-  // A named day or week reference must NOT be mistaken for "today"
   const hasDayName = WEEK_DAYS.some(([, names]) => names.some((n) => lower.includes(n)));
   const hasWeekRef = lower.includes("next week") || lower.includes("this week") ||
     lower.includes("próxima semana") || lower.includes("proxima semana") ||
     lower.includes("esta semana");
 
-  // "today at 3pm" OR bare time with no other anchor → today
-  // But NOT if a specific day name or week reference is present
   if (hasToday || (time && !hasTomorrow && !hasDayName && !hasWeekRef &&
       !lower.includes("yesterday") && !lower.includes("ayer"))) {
-    return applyTime(base, time ?? { hours: 9, minutes: 0 });
+    return applyTime(localTodayMidnight, time ?? { hours: 9, minutes: 0 });
   }
   if (hasTomorrow) {
-    base.setDate(base.getDate() + 1);
-    return applyTime(base, time);
+    return applyTime(new Date(localTodayMidnight.getTime() + 86_400_000), time);
   }
   if (lower.includes("next week") || lower.includes("próxima semana") || lower.includes("proxima semana") || lower.includes("la próxima semana")) {
-    base.setDate(base.getDate() + 7);
-    return applyTime(base, time);
+    return applyTime(new Date(localTodayMidnight.getTime() + 7 * 86_400_000), time);
   }
   if (lower.includes("this week") || lower.includes("esta semana")) {
-    base.setDate(base.getDate() + 3);
-    return applyTime(base, time);
+    return applyTime(new Date(localTodayMidnight.getTime() + 3 * 86_400_000), time);
   }
 
   for (const [dayNum, names] of WEEK_DAYS) {
     if (names.some((n) => lower.includes(n))) {
-      base.setDate(base.getDate() + ((dayNum + 7 - base.getDay()) % 7 || 7));
-      return applyTime(base, time);
+      const daysUntil = (dayNum + 7 - localDayOfWeek) % 7 || 7;
+      return applyTime(new Date(localTodayMidnight.getTime() + daysUntil * 86_400_000), time);
     }
   }
 
@@ -419,6 +424,66 @@ const IdeaSchema = z.object({
   tags: z.array(z.string()).default([]),
 });
 export type IdeaStructure = z.infer<typeof IdeaSchema>;
+
+const IDEA_APPEND_SYSTEM = `You are an expert note-taker. You have an existing structured idea and new raw content to merge in.
+
+━━ RULES ━━
+- Preserve the original language. Spanish → Spanish. English → English. Never translate.
+- Keep ALL existing content — never delete or shorten existing sections, insights, or action items.
+- Integrate the new content intelligently:
+  - Add new bullet points to existing sections if they fit thematically.
+  - Create new sections if the new content covers a distinct topic.
+  - Add new key_insights and action_items from the new content.
+  - Update the summary only if the new content meaningfully expands the scope.
+  - Keep the title unless the new content dramatically changes the core topic.
+- Deduplicate: if new content repeats existing points, skip the duplicates.
+- Return the complete updated idea — all original content plus the new additions.
+
+━━ RESPONSE FORMAT ━━
+Return ONLY valid JSON:
+{
+  "title": "...",
+  "summary": "...",
+  "sections": [{ "heading": "...", "points": ["..."] }],
+  "key_insights": ["..."],
+  "action_items": ["..."],
+  "tags": ["..."]
+}`;
+
+export async function appendToIdea(existing: IdeaStructure, newText: string): Promise<IdeaStructure> {
+  const userContent = `EXISTING IDEA:\n${JSON.stringify(existing, null, 2)}\n\nNEW CONTENT TO ADD:\n${newText}`;
+  const messages = [
+    { role: "system" as const, content: IDEA_APPEND_SYSTEM },
+    { role: "user" as const, content: userContent },
+  ];
+
+  let raw = "{}";
+  try {
+    if (provider === "groq" && groq) {
+      raw = await callGroq(messages);
+    } else if (openai) {
+      raw = await callOpenAI(messages);
+    } else {
+      throw new Error("No AI provider configured");
+    }
+  } catch (primaryErr) {
+    try {
+      if (provider === "groq" && openai) raw = await callOpenAI(messages);
+      else if (groq) raw = await callGroq(messages);
+      else throw primaryErr;
+    } catch {
+      throw primaryErr;
+    }
+  }
+
+  console.log("[ai] appendToIdea raw length:", raw.length);
+  const parsed = IdeaSchema.safeParse(safeParseJSON(raw));
+  if (!parsed.success) {
+    console.error("[ai] appendToIdea validation failed:", parsed.error.issues);
+    return existing;
+  }
+  return parsed.data;
+}
 
 export async function structureIdea(text: string): Promise<IdeaStructure> {
   const messages = [

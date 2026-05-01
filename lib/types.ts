@@ -1,6 +1,8 @@
 export type IdeaSection = { heading: string; points: string[] };
 
-export type IdeaCollaborator = { id: string; email: string };
+export type IdeaCollaborator = { id: string; email: string; nickname: string | null };
+
+export type Profile = { id: string; email: string; nickname: string | null };
 
 export type Idea = {
   id: string;
@@ -13,6 +15,9 @@ export type Idea = {
   key_insights: string[];
   action_items: string[];
   tags: string[];
+  last_edited_by_id?: string | null;
+  last_edited_at?: string | null;
+  last_edited_by_nickname?: string | null;
   is_owner?: boolean;
   collaborators?: IdeaCollaborator[];
 };

@@ -24,11 +24,11 @@ export async function GET(
     .eq("idea_id", id);
 
   const sharedIds = (shares ?? []).map((s) => s.shared_with_id);
-  let collaborators: { id: string; email: string }[] = [];
+  let collaborators: { id: string; email: string; nickname: string | null }[] = [];
   if (sharedIds.length > 0) {
     const { data: profiles } = await supabase
-      .from("profiles").select("id, email").in("id", sharedIds);
-    collaborators = (profiles ?? []).map((p) => ({ id: p.id, email: p.email }));
+      .from("profiles").select("id, email, nickname").in("id", sharedIds);
+    collaborators = (profiles ?? []).map((p) => ({ id: p.id, email: p.email, nickname: p.nickname ?? null }));
   }
 
   return NextResponse.json({ collaborators });
@@ -51,7 +51,7 @@ export async function POST(
   if (!email?.trim()) return NextResponse.json({ error: "email required" }, { status: 400 });
 
   const { data: profile } = await supabase
-    .from("profiles").select("id, email").eq("email", email.trim().toLowerCase()).single();
+    .from("profiles").select("id, email, nickname").eq("email", email.trim().toLowerCase()).single();
 
   if (!profile) {
     return NextResponse.json(
@@ -91,7 +91,7 @@ export async function POST(
     url: "/",
   }).catch(() => {}); // fire-and-forget, don't block the response
 
-  return NextResponse.json({ collaborator: { id: profile.id, email: profile.email } });
+  return NextResponse.json({ collaborator: { id: profile.id, email: profile.email, nickname: profile.nickname ?? null } });
 }
 
 export async function DELETE(
