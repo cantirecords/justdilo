@@ -181,13 +181,13 @@ export async function POST(req: Request) {
 
   const { groups, overall_summary } = result;
 
-  // Fetch existing open tasks for dedup + group normalization
+  // Fetch ALL open tasks for dedup + group normalization (no date cap — recurring tasks
+  // older than 7 days were slipping through and creating duplicates)
   const { data: recentTasks } = await supabase
     .from("tasks")
     .select("title, group_name")
     .eq("user_id", user.id)
-    .eq("completed", false)
-    .gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString());
+    .eq("completed", false);
 
   const existingTitles = (recentTasks ?? []).map((t: any) => t.title as string);
   const existingGroups = [...new Set((recentTasks ?? []).map((t: any) => t.group_name as string).filter(Boolean))];

@@ -141,8 +141,7 @@ export async function POST(req: Request) {
   const { groups, overall_summary } = result;
 
   const { data: recent } = await supabase
-    .from("tasks").select("title, group_name").eq("user_id", user.id).eq("completed", false)
-    .gte("created_at", new Date(Date.now() - 7 * 86400000).toISOString());
+    .from("tasks").select("title, group_name").eq("user_id", user.id).eq("completed", false);
 
   const existingTitles = (recent ?? []).map((t: any) => t.title as string);
   const existingGroups = [...new Set((recent ?? []).map((t: any) => t.group_name as string).filter(Boolean))];

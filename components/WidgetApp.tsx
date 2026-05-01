@@ -80,6 +80,7 @@ export default function WidgetApp({ initialTasks }: { initialTasks: SlimTask[] }
     const ext = mime.includes("mp4") ? "mp4" : mime.includes("ogg") ? "ogg" : "webm";
     const fd = new FormData();
     fd.append("audio", new File([blob], `rec-${Date.now()}.${ext}`, { type: blob.type }));
+    fd.append("utcOffset", String(-new Date().getTimezoneOffset()));
     try {
       const res = await fetch("/api/process-voice", { method: "POST", body: fd });
       const json = await res.json();
