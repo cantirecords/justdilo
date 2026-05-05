@@ -1,55 +1,439 @@
 "use client";
 import { useEffect, useState } from "react";
-import { X, RefreshCw, Mic, CheckSquare, BarChart2 } from "lucide-react";
+import { X, RefreshCw, Mic, CheckSquare, BarChart2, Users, Brain, Zap, AlertTriangle, TrendingUp, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 type DayCount = { date: string; count: number };
-type RecentCapture = {
-  id: string;
-  created_at: string;
-  user_id: string;
-  transcript_snippet: string;
-  transcript_length: number;
-};
 type Stats = {
   capturesByDay: DayCount[];
   tasksByDay: DayCount[];
   totals: { captures7d: number; tasks7d: number; uniqueUsers: number; uniqueUsersToday: number };
   cost: { per_capture_usd: number; estimated_7d_usd: number; estimated_daily_usd: number; note: string };
-  recentCaptures: RecentCapture[];
+  recentCaptures: { id: string; created_at: string; user_id: string; transcript_snippet: string; transcript_length: number }[];
+  aiQuality: {
+    conversionRate: number; emptyRate: number; avgTasksPerCapture: number;
+    voicePct: number; textPct: number;
+    langEsPct: number; langEnPct: number; langMixedPct: number;
+    totalCaptures30d: number; capturesWithTasks: number;
+    voiceCaptures: number; textCaptures: number;
+  };
+  behavior: {
+    dau: number; wau: number; dauWauRatio: number;
+    completionRate: number; retentionRate: number;
+    newUsers7d: number; returningUsers7d: number; week1UserCount: number;
+    peakHour: number; peakHourCount: number; hourlyDistribution: number[];
+  };
+};
+type AnalysisIssue = { title: string; severity: string; evidence: string; root_cause: string; fix: string };
+type AnalysisWin = { title: string; evidence: string };
+type AnalysisQuickWin = { action: string; effort: string; expected_impact: string };
+type Analysis = {
+  health_score: number; health_label: string; executive_summary: string;
+  critical_issues: AnalysisIssue[];
+  wins: AnalysisWin[];
+  quick_wins: AnalysisQuickWin[];
+  prompt_improvements: string[];
+  weekly_priority: string;
+  watch_next_week: string[];
 };
 
-type Props = { onClose: () => void };
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
+function shortDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+function timeAgo(iso: string) {
+  const d = (Date.now() - new Date(iso).getTime()) / 60000;
+  if (d < 1) return "just now";
+  if (d < 60) return `${Math.floor(d)}m ago`;
+  if (d < 1440) return `${Math.floor(d / 60)}h ago`;
+  return `${Math.floor(d / 1440)}d ago`;
+}
+function healthColor(score: number) {
+  if (score >= 80) return "text-emerald-400";
+  if (score >= 60) return "text-yellow-400";
+  if (score >= 40) return "text-orange-400";
+  return "text-red-400";
+}
+function severityColor(s: string) {
+  if (s === "high") return "text-red-400 bg-red-500/10 border-red-500/20";
+  if (s === "medium") return "text-yellow-400 bg-yellow-500/10 border-yellow-500/20";
+  return "text-blue-400 bg-blue-500/10 border-blue-500/20";
+}
 
+// ── Sub-components ────────────────────────────────────────────────────────────
 function Bar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  const pctW = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
-        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${pct}%` }} />
+      <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full", color)} style={{ width: `${pctW}%` }} />
       </div>
-      <span className="text-[11px] text-zinc-400 w-5 text-right">{value}</span>
+      <span className="text-[11px] text-zinc-400 w-5 text-right tabular-nums">{value}</span>
     </div>
   );
 }
 
-function shortDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function Metric({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
+      <p className={cn("text-xl font-bold", color ?? "text-zinc-100")}>{value}</p>
+      <p className="text-[11px] text-zinc-400 leading-tight">{label}</p>
+      {sub && <p className="text-[10px] text-zinc-600 mt-0.5">{sub}</p>}
+    </div>
+  );
 }
 
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+function Collapsible({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-zinc-800 rounded-xl overflow-hidden">
+      <button onClick={() => setOpen(v => !v)} className="w-full flex items-center justify-between px-4 py-3 bg-zinc-900 hover:bg-zinc-800 transition text-left">
+        <span className="text-[11px] font-semibold tracking-wider text-zinc-400 uppercase">{title}</span>
+        {open ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />}
+      </button>
+      {open && <div className="px-4 pb-4 pt-3 bg-zinc-900/50 space-y-2">{children}</div>}
+    </div>
+  );
 }
 
-export default function AdminPanel({ onClose }: Props) {
-  const [tab, setTab] = useState<"captures" | "stats">("stats");
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function OverviewTab({ stats }: { stats: Stats }) {
+  const maxC = Math.max(...stats.capturesByDay.map(d => d.count), 1);
+  const maxT = Math.max(...stats.tasksByDay.map(d => d.count), 1);
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3">
+        <Metric label="Captures (7d)" value={String(stats.totals.captures7d)} color="text-blue-400" />
+        <Metric label="Tasks created (7d)" value={String(stats.totals.tasks7d)} color="text-emerald-400" />
+        <Metric label="Total users" value={String(stats.totals.uniqueUsers)} color="text-purple-400" />
+        <Metric label="Active today" value={String(stats.totals.uniqueUsersToday)} color="text-amber-400" />
+      </div>
+      <Collapsible title="Captures per day" defaultOpen>
+        {stats.capturesByDay.map(d => (
+          <div key={d.date} className="flex items-center gap-2">
+            <span className="text-[11px] text-zinc-600 w-16 shrink-0">{shortDate(d.date)}</span>
+            <Bar value={d.count} max={maxC} color="bg-blue-500" />
+          </div>
+        ))}
+      </Collapsible>
+      <Collapsible title="Tasks per day">
+        {stats.tasksByDay.map(d => (
+          <div key={d.date} className="flex items-center gap-2">
+            <span className="text-[11px] text-zinc-600 w-16 shrink-0">{shortDate(d.date)}</span>
+            <Bar value={d.count} max={maxT} color="bg-emerald-500" />
+          </div>
+        ))}
+      </Collapsible>
+      <Collapsible title="Cost estimate (LLM only)">
+        <div className="grid grid-cols-3 gap-3 text-center">
+          {[
+            { v: `$${stats.cost.estimated_daily_usd.toFixed(4)}`, l: "per day" },
+            { v: `$${stats.cost.estimated_7d_usd.toFixed(4)}`, l: "last 7 days" },
+            { v: `$${stats.cost.per_capture_usd.toFixed(5)}`, l: "per capture" },
+          ].map(({ v, l }) => (
+            <div key={l}>
+              <p className="text-base font-bold text-zinc-100">{v}</p>
+              <p className="text-[10px] text-zinc-500">{l}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-zinc-600 pt-1">{stats.cost.note}</p>
+      </Collapsible>
+      <Collapsible title={`Recent captures (${stats.recentCaptures.length})`}>
+        <div className="space-y-2">
+          {stats.recentCaptures.map(c => (
+            <div key={c.id} className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
+              <div className="flex justify-between mb-0.5">
+                <span className="text-[10px] text-zinc-600 font-mono">{c.user_id.slice(0, 8)}…</span>
+                <span className="text-[10px] text-zinc-600">{timeAgo(c.created_at)}</span>
+              </div>
+              <p className="text-[12px] text-zinc-300 leading-snug">
+                {c.transcript_snippet || <span className="text-zinc-600 italic">empty</span>}
+                {c.transcript_length > 120 && <span className="text-zinc-600"> …</span>}
+              </p>
+            </div>
+          ))}
+        </div>
+      </Collapsible>
+    </div>
+  );
+}
+
+function QualityTab({ q }: { q: Stats["aiQuality"] }) {
+  const convColor = q.conversionRate >= 0.75 ? "text-emerald-400" : q.conversionRate >= 0.5 ? "text-yellow-400" : "text-red-400";
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3">
+        <Metric label="Conversion rate" value={pct(q.conversionRate)} sub="> 75% is healthy" color={convColor} />
+        <Metric label="Avg tasks / capture" value={q.avgTasksPerCapture.toFixed(1)} color="text-blue-400" />
+        <Metric label="Empty captures (0 tasks)" value={pct(q.emptyRate)} color={q.emptyRate > 0.25 ? "text-red-400" : "text-zinc-100"} />
+        <Metric label="Captures (30d)" value={String(q.totalCaptures30d)} sub={`${q.capturesWithTasks} produced tasks`} />
+      </div>
+
+      <Collapsible title="Voice vs text (30d)" defaultOpen>
+        <div className="space-y-2">
+          {[
+            { label: "Voice (mic)", value: q.voiceCaptures, pctVal: q.voicePct, color: "bg-orange-500" },
+            { label: "QuickAdd (text)", value: q.textCaptures, pctVal: q.textPct, color: "bg-blue-500" },
+          ].map(({ label, value, pctVal, color }) => (
+            <div key={label} className="flex items-center gap-3">
+              <span className="text-[11px] text-zinc-500 w-28 shrink-0">{label}</span>
+              <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div className={cn("h-full rounded-full", color)} style={{ width: `${(pctVal * 100).toFixed(0)}%` }} />
+              </div>
+              <span className="text-[11px] text-zinc-400 w-14 text-right tabular-nums">{pct(pctVal)} ({value})</span>
+            </div>
+          ))}
+        </div>
+      </Collapsible>
+
+      <Collapsible title="Language distribution (30d)" defaultOpen>
+        <div className="space-y-2">
+          {[
+            { label: "English", value: q.langEnPct, color: "bg-blue-500" },
+            { label: "Spanish", value: q.langEsPct, color: "bg-emerald-500" },
+            { label: "Mixed", value: q.langMixedPct, color: "bg-purple-500" },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="flex items-center gap-3">
+              <span className="text-[11px] text-zinc-500 w-16 shrink-0">{label}</span>
+              <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                <div className={cn("h-full rounded-full", color)} style={{ width: `${(value * 100).toFixed(0)}%` }} />
+              </div>
+              <span className="text-[11px] text-zinc-400 w-10 text-right tabular-nums">{pct(value)}</span>
+            </div>
+          ))}
+        </div>
+      </Collapsible>
+    </div>
+  );
+}
+
+function UsersTab({ b }: { b: Stats["behavior"] }) {
+  const retColor = b.retentionRate >= 0.5 ? "text-emerald-400" : b.retentionRate >= 0.3 ? "text-yellow-400" : "text-red-400";
+  const dauColor = b.dauWauRatio >= 0.4 ? "text-emerald-400" : b.dauWauRatio >= 0.2 ? "text-yellow-400" : "text-red-400";
+  const maxHour = Math.max(...b.hourlyDistribution, 1);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3">
+        <Metric label="DAU / WAU" value={pct(b.dauWauRatio)} sub="> 40% is healthy" color={dauColor} />
+        <Metric label="Retention (w/w)" value={pct(b.retentionRate)} sub="> 50% is healthy" color={retColor} />
+        <Metric label="Task completion" value={pct(b.completionRate)} color="text-blue-400" />
+        <Metric label="New users (7d)" value={String(b.newUsers7d)} sub={`${b.returningUsers7d} returning`} color="text-purple-400" />
+      </div>
+
+      <Collapsible title="Peak hours (all time, UTC)" defaultOpen>
+        <div className="grid grid-cols-12 gap-0.5">
+          {b.hourlyDistribution.map((count, h) => {
+            const heightPct = maxHour > 0 ? (count / maxHour) * 100 : 0;
+            const isPeak = h === b.peakHour;
+            return (
+              <div key={h} className="flex flex-col items-center gap-1" title={`${h}:00 — ${count} captures`}>
+                <div className="w-full flex items-end h-8">
+                  <div
+                    className={cn("w-full rounded-sm", isPeak ? "bg-amber-400" : "bg-zinc-700")}
+                    style={{ height: `${Math.max(heightPct, count > 0 ? 10 : 0)}%` }}
+                  />
+                </div>
+                {h % 6 === 0 && <span className="text-[9px] text-zinc-600">{h}h</span>}
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-zinc-500 mt-1">
+          Peak: <span className="text-amber-400">{b.peakHour}:00</span> ({b.peakHourCount} captures)
+        </p>
+      </Collapsible>
+
+      <Collapsible title="Retention details">
+        <div className="space-y-1.5 text-[12px] text-zinc-400">
+          <p>Users active week before last: <span className="text-zinc-200">{b.week1UserCount}</span></p>
+          <p>Of those, returned this week: <span className={retColor}>{b.returningUsers7d} ({pct(b.retentionRate)})</span></p>
+          <p>Brand new users this week: <span className="text-zinc-200">{b.newUsers7d}</span></p>
+          <p>DAU: <span className="text-zinc-200">{b.dau}</span> · WAU: <span className="text-zinc-200">{b.wau}</span></p>
+        </div>
+      </Collapsible>
+    </div>
+  );
+}
+
+function AnalysisTab({ stats }: { stats: Stats }) {
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function generate() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(stats),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Analysis failed");
+      setAnalysis(json.analysis);
+      setGeneratedAt(json.generated_at);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!analysis) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-4">
+        <Brain className="w-10 h-10 text-zinc-600" />
+        <div className="text-center">
+          <p className="text-sm text-zinc-300 font-medium mb-1">Weekly AI Analysis</p>
+          <p className="text-[12px] text-zinc-600 max-w-xs">
+            Groq analyzes all your metrics and tells you exactly what to fix, what's working, and what to prioritize this week.
+          </p>
+        </div>
+        {error && <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-2">{error}</p>}
+        <button
+          onClick={generate}
+          disabled={loading}
+          className="flex items-center gap-2 bg-zinc-100 text-zinc-900 font-semibold text-sm px-5 py-2.5 rounded-full hover:bg-white disabled:opacity-50 transition"
+        >
+          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Brain className="w-4 h-4" />}
+          {loading ? "Analyzing…" : "Generate Analysis"}
+        </button>
+      </div>
+    );
+  }
+
+  const scoreColor = healthColor(analysis.health_score);
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="text-center">
+            <p className={cn("text-3xl font-bold tabular-nums", scoreColor)}>{analysis.health_score}</p>
+            <p className="text-[10px] text-zinc-600">/100</p>
+          </div>
+          <div>
+            <p className={cn("text-sm font-semibold", scoreColor)}>{analysis.health_label}</p>
+            <p className="text-[10px] text-zinc-600">{generatedAt ? `Generated ${timeAgo(generatedAt)}` : ""}</p>
+          </div>
+        </div>
+        <button onClick={generate} disabled={loading} className="flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-300 transition">
+          <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
+          Refresh
+        </button>
+      </div>
+
+      {/* Summary */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
+        <p className="text-[12px] text-zinc-300 leading-relaxed">{analysis.executive_summary}</p>
+      </div>
+
+      {/* Weekly priority */}
+      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-2 mb-1">
+          <Zap className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-[11px] font-bold tracking-wider text-amber-400 uppercase">This Week's Priority</span>
+        </div>
+        <p className="text-[12px] text-zinc-200 leading-relaxed">{analysis.weekly_priority}</p>
+      </div>
+
+      {/* Critical issues */}
+      {analysis.critical_issues?.length > 0 && (
+        <Collapsible title={`Critical issues (${analysis.critical_issues.length})`} defaultOpen>
+          {analysis.critical_issues.map((issue, i) => (
+            <div key={i} className={cn("border rounded-xl px-3 py-2.5 space-y-1.5", severityColor(issue.severity))}>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span className="text-[12px] font-semibold">{issue.title}</span>
+                <span className="text-[10px] uppercase tracking-wide opacity-70 ml-auto">{issue.severity}</span>
+              </div>
+              <p className="text-[11px] opacity-80"><span className="font-medium">Evidence:</span> {issue.evidence}</p>
+              <p className="text-[11px] opacity-80"><span className="font-medium">Cause:</span> {issue.root_cause}</p>
+              <p className="text-[11px] text-zinc-200 bg-zinc-900/60 rounded-lg px-2.5 py-1.5">
+                <span className="font-medium">Fix:</span> {issue.fix}
+              </p>
+            </div>
+          ))}
+        </Collapsible>
+      )}
+
+      {/* Quick wins */}
+      {analysis.quick_wins?.length > 0 && (
+        <Collapsible title="Quick wins" defaultOpen>
+          {analysis.quick_wins.map((w, i) => (
+            <div key={i} className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2.5">
+              <div className="flex items-start gap-2">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[12px] text-zinc-200">{w.action}</p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">{w.effort} · {w.expected_impact}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </Collapsible>
+      )}
+
+      {/* Wins */}
+      {analysis.wins?.length > 0 && (
+        <Collapsible title="What's working">
+          {analysis.wins.map((w, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <span className="text-emerald-400 text-sm mt-0.5">✓</span>
+              <div>
+                <p className="text-[12px] text-zinc-300">{w.title}</p>
+                <p className="text-[11px] text-zinc-600">{w.evidence}</p>
+              </div>
+            </div>
+          ))}
+        </Collapsible>
+      )}
+
+      {/* Prompt improvements */}
+      {analysis.prompt_improvements?.length > 0 && (
+        <Collapsible title="AI prompt improvements">
+          {analysis.prompt_improvements.map((p, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <Brain className="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" />
+              <p className="text-[12px] text-zinc-400">{p}</p>
+            </div>
+          ))}
+        </Collapsible>
+      )}
+
+      {/* Watch next week */}
+      {analysis.watch_next_week?.length > 0 && (
+        <Collapsible title="Watch next week">
+          {analysis.watch_next_week.map((w, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Clock className="w-3 h-3 text-zinc-600 shrink-0" />
+              <p className="text-[12px] text-zinc-500">{w}</p>
+            </div>
+          ))}
+        </Collapsible>
+      )}
+    </div>
+  );
+}
+
+// ── Main Panel ────────────────────────────────────────────────────────────────
+type Tab = "overview" | "quality" | "users" | "analysis";
+const TABS: { id: Tab; label: string; icon: any }[] = [
+  { id: "overview", label: "Overview", icon: BarChart2 },
+  { id: "quality",  label: "AI Quality", icon: Brain },
+  { id: "users",    label: "Users", icon: Users },
+  { id: "analysis", label: "Analysis", icon: Zap },
+];
+
+export default function AdminPanel({ onClose }: { onClose: () => void }) {
+  const [tab, setTab] = useState<Tab>("overview");
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +443,7 @@ export default function AdminPanel({ onClose }: Props) {
     setError(null);
     try {
       const res = await fetch("/api/admin/stats");
-      if (!res.ok) throw new Error("Failed to load stats");
+      if (!res.ok) throw new Error("Failed");
       setStats(await res.json());
     } catch (e: any) {
       setError(e.message);
@@ -69,154 +453,69 @@ export default function AdminPanel({ onClose }: Props) {
   }
 
   useEffect(() => { load(); }, []);
-
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
   }, [onClose]);
-
-  const maxCaptures = Math.max(...(stats?.capturesByDay.map((d) => d.count) ?? [1]), 1);
-  const maxTasks = Math.max(...(stats?.tasksByDay.map((d) => d.count) ?? [1]), 1);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/75 backdrop-blur-sm overflow-y-auto py-6 px-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-2xl my-8 mx-4 overflow-hidden" style={{ animation: "slideUp 0.22s ease-out" }}>
+      <div className="w-full max-w-lg bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden" style={{ animation: "slideUp 0.2s ease-out" }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Admin</span>
-            <div className="flex gap-1">
-              <button
-                onClick={() => setTab("stats")}
-                className={cn("text-xs px-3 py-1 rounded-full transition", tab === "stats" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300")}
-              >
-                Stats
-              </button>
-              <button
-                onClick={() => setTab("captures")}
-                className={cn("text-xs px-3 py-1 rounded-full transition", tab === "captures" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300")}
-              >
-                Captures
-              </button>
-            </div>
-          </div>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
+          <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Admin · yorohn</span>
           <div className="flex items-center gap-2">
-            <button onClick={load} className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition">
+            <button onClick={load} className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300 transition">
               <RefreshCw className={cn("w-3.5 h-3.5", loading && "animate-spin")} />
             </button>
-            <button onClick={onClose} className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition">
+            <button onClick={onClose} className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300 transition">
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        <div className="p-5">
-          {loading && !stats && (
-            <div className="flex items-center justify-center py-12 text-zinc-600 text-sm">Loading…</div>
-          )}
-          {error && (
-            <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">{error}</div>
-          )}
-
-          {stats && tab === "stats" && (
-            <div className="space-y-6">
-              {/* Totals */}
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "Captures (7d)", value: stats.totals.captures7d, icon: Mic, color: "text-blue-400" },
-                  { label: "Tasks created (7d)", value: stats.totals.tasks7d, icon: CheckSquare, color: "text-emerald-400" },
-                  { label: "Total users", value: stats.totals.uniqueUsers, icon: BarChart2, color: "text-purple-400" },
-                  { label: "Active today", value: stats.totals.uniqueUsersToday, icon: BarChart2, color: "text-amber-400" },
-                ].map(({ label, value, icon: Icon, color }) => (
-                  <div key={label} className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
-                    <Icon className={cn("w-3.5 h-3.5 mb-1", color)} />
-                    <p className="text-xl font-bold text-zinc-100">{value}</p>
-                    <p className="text-[11px] text-zinc-500">{label}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* Captures chart */}
-              <div>
-                <p className="text-[11px] font-semibold tracking-wider text-zinc-500 uppercase mb-2">Captures per day</p>
-                <div className="space-y-1.5">
-                  {stats.capturesByDay.map((d) => (
-                    <div key={d.date} className="flex items-center gap-2">
-                      <span className="text-[11px] text-zinc-600 w-16 shrink-0">{shortDate(d.date)}</span>
-                      <Bar value={d.count} max={maxCaptures} color="bg-blue-500" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Tasks chart */}
-              <div>
-                <p className="text-[11px] font-semibold tracking-wider text-zinc-500 uppercase mb-2">Tasks created per day</p>
-                <div className="space-y-1.5">
-                  {stats.tasksByDay.map((d) => (
-                    <div key={d.date} className="flex items-center gap-2">
-                      <span className="text-[11px] text-zinc-600 w-16 shrink-0">{shortDate(d.date)}</span>
-                      <Bar value={d.count} max={maxTasks} color="bg-emerald-500" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Cost estimate */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 space-y-2">
-                <p className="text-[11px] font-semibold tracking-wider text-zinc-500 uppercase">Cost estimate (LLM only)</p>
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div>
-                    <p className="text-base font-bold text-zinc-100">${stats.cost.estimated_daily_usd.toFixed(4)}</p>
-                    <p className="text-[10px] text-zinc-500">per day</p>
-                  </div>
-                  <div>
-                    <p className="text-base font-bold text-zinc-100">${stats.cost.estimated_7d_usd.toFixed(4)}</p>
-                    <p className="text-[10px] text-zinc-500">last 7 days</p>
-                  </div>
-                  <div>
-                    <p className="text-base font-bold text-zinc-100">${stats.cost.per_capture_usd.toFixed(5)}</p>
-                    <p className="text-[10px] text-zinc-500">per capture</p>
-                  </div>
-                </div>
-                <p className="text-[10px] text-zinc-600">{stats.cost.note}</p>
-              </div>
-            </div>
-          )}
-
-          {stats && tab === "captures" && (
-            <div className="space-y-2">
-              <p className="text-[11px] font-semibold tracking-wider text-zinc-500 uppercase mb-3">
-                Last 30 captures · all users
-              </p>
-              {stats.recentCaptures.length === 0 && (
-                <p className="text-sm text-zinc-600 text-center py-8">No captures yet</p>
+        {/* Tabs */}
+        <div className="flex border-b border-zinc-800">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={cn(
+                "flex-1 flex flex-col items-center gap-1 py-2.5 text-[10px] font-semibold tracking-wide uppercase transition border-b-2",
+                tab === id ? "border-zinc-100 text-zinc-100" : "border-transparent text-zinc-600 hover:text-zinc-400"
               )}
-              {stats.recentCaptures.map((c) => (
-                <div key={c.id} className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] text-zinc-600 font-mono">{c.user_id.slice(0, 8)}…</span>
-                    <span className="text-[10px] text-zinc-600">{timeAgo(c.created_at)}</span>
-                  </div>
-                  <p className="text-sm text-zinc-200 leading-snug">
-                    {c.transcript_snippet || <span className="text-zinc-600 italic">empty</span>}
-                    {c.transcript_length > 120 && <span className="text-zinc-600"> …({c.transcript_length} chars)</span>}
-                  </p>
-                </div>
-              ))}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="p-5 max-h-[75vh] overflow-y-auto">
+          {loading && !stats && (
+            <div className="flex items-center justify-center py-16 text-zinc-600 text-sm">
+              <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Loading…
             </div>
           )}
+          {error && !stats && (
+            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">{error}</p>
+          )}
+          {stats && tab === "overview"  && <OverviewTab stats={stats} />}
+          {stats && tab === "quality"   && <QualityTab q={stats.aiQuality} />}
+          {stats && tab === "users"     && <UsersTab b={stats.behavior} />}
+          {stats && tab === "analysis"  && <AnalysisTab stats={stats} />}
         </div>
       </div>
 
       <style>{`
         @keyframes slideUp {
-          from { transform: translateY(40px); opacity: 0; }
+          from { transform: translateY(30px); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
         }
       `}</style>
