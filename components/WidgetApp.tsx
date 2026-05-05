@@ -95,9 +95,11 @@ export default function WidgetApp({ initialTasks }: { initialTasks: SlimTask[] }
     }
   }
 
-  const todayStr = new Date().toDateString();
+  const now = new Date();
+  const todayStr = now.toDateString();
+  const overdue = tasks.filter((t) => t.due_date && new Date(t.due_date) < new Date(now.toDateString()) && new Date(t.due_date).toDateString() !== todayStr);
   const todayTasks = tasks.filter((t) => t.due_date && new Date(t.due_date).toDateString() === todayStr);
-  const upcoming = tasks.filter((t) => !t.due_date || new Date(t.due_date).toDateString() !== todayStr).slice(0, 6);
+  const upcoming = tasks.filter((t) => !t.due_date || new Date(t.due_date) > now).slice(0, 6);
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground p-3 gap-3 select-none">
@@ -119,6 +121,22 @@ export default function WidgetApp({ initialTasks }: { initialTasks: SlimTask[] }
       </button>
 
       <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
+        {overdue.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-red-500 mb-1.5">
+              Overdue · {overdue.length}
+            </p>
+            <ul className="space-y-1.5">
+              {overdue.map((t) => (
+                <li key={t.id} className="flex items-start gap-2 text-xs leading-snug">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 mt-0.5 shrink-0" />
+                  <span className="text-red-400">{t.title}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {todayTasks.length > 0 && (
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
