@@ -43,7 +43,9 @@
       "Bash(node scripts/gen-electron-icons.mjs)",
       "Bash(gh auth *)",
       "Bash(gh repo *)",
-      "Bash(git remote *)"
+      "Bash(git remote *)",
+      "Bash(gh release create v1.0.0 'release/JustDilo-1.0.0-arm64.dmg#JustDilo-mac-arm64.dmg' 'release/JustDilo-1.0.0.dmg#JustDilo-mac-intel.dmg' 'release/JustDilo Setup 1.0.0.exe#JustDilo-windows-Setup.exe' --title 'JustDilo v1.0.0' --notes ' *)",
+      "Bash(gh release *)"
     ],
     "additionalDirectories": [
       "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/public",

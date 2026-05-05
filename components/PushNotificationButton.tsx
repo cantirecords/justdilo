@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Bell, BellOff, Loader2 } from "lucide-react";
+import { Bell, BellOff, Loader2, Monitor } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -11,10 +11,21 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
+const isElectron = () =>
+  typeof navigator !== "undefined" && navigator.userAgent.includes("Electron");
+
 export default function PushNotificationButton() {
   const [state, setState] = useState<"loading" | "unsupported" | "denied" | "subscribed" | "unsubscribed">("loading");
 
   useEffect(() => {
+    // In Electron, use native OS notifications — no push server needed
+    if (isElectron()) {
+      if (Notification.permission === "granted") setState("subscribed");
+      else if (Notification.permission === "denied") setState("denied");
+      else setState("unsubscribed");
+      return;
+    }
+
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
       setState("unsupported");
       return;
@@ -29,6 +40,27 @@ export default function PushNotificationButton() {
   }, []);
 
   async function toggle() {
+    // Electron path — just toggle native notification permission
+    if (isElectron()) {
+      if (state === "subscribed") {
+        setState("unsubscribed");
+        toast("Notifications off");
+      } else {
+        setState("loading");
+        const permission = await Notification.requestPermission();
+        if (permission === "granted") {
+          setState("subscribed");
+          toast.success("You'll get system alerts for your tasks");
+          new Notification("JustDilo", { body: "Notifications are on!" });
+        } else {
+          setState("denied");
+          toast.error("Notifications blocked in system settings");
+        }
+      }
+      return;
+    }
+
+    // Browser path — web push
     if (state === "subscribed") {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
@@ -86,14 +118,21 @@ export default function PushNotificationButton() {
           ? "text-yellow-500 hover:text-yellow-600"
           : "text-muted-foreground hover:text-foreground",
       )}
-      title={state === "subscribed" ? "Turn off reminders" : "Turn on daily reminders"}
-    >
-      {state === "loading"
-        ? <Loader2 className="w-4 h-4 animate-spin" />
-        : state === "subscribed"
-        ? <Bell className="w-4 h-4" />
-        : <BellOff className="w-4 h-4" />
+      title={
+        isElectron()
+          ? state === "subscribed" ? "Turn off system alerts" : "Turn on system alerts"
+          : state === "subscribed" ? "Turn off reminders" : "Turn on daily reminders"
       }
+    >
+      {state === "loading" ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : isElectron() && state !== "subscribed" ? (
+        <Monitor className="w-4 h-4" />
+      ) : state === "subscribed" ? (
+        <Bell className="w-4 h-4" />
+      ) : (
+        <BellOff className="w-4 h-4" />
+      )}
     </button>
   );
 }

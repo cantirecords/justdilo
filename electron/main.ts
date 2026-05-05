@@ -1,13 +1,29 @@
-import { app, BrowserWindow, session, shell, nativeTheme } from 'electron';
+import { app, BrowserWindow, session, shell, nativeTheme, screen, Tray, Menu, nativeImage } from 'electron';
 import path from 'path';
 
 const APP_URL = 'https://justdilo-app.vercel.app';
 const isDev = process.env.NODE_ENV === 'development';
+const BASE_URL = isDev ? 'http://localhost:3000' : APP_URL;
+
+let mainWin: BrowserWindow | null = null;
+let widgetWin: BrowserWindow | null = null;
+let tray: Tray | null = null;
+
+function setupPermissions() {
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    const allowed = ['media', 'notifications', 'microphone', 'geolocation'];
+    callback(allowed.includes(permission));
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
+    const allowed = ['media', 'notifications', 'microphone', 'geolocation'];
+    return allowed.includes(permission);
+  });
+}
 
 function createWindow() {
   nativeTheme.themeSource = 'dark';
 
-  const win = new BrowserWindow({
+  mainWin = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 375,
@@ -25,46 +41,96 @@ function createWindow() {
     },
   });
 
-  // Grant microphone + notification permissions from the app origin
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const allowed = ['media', 'notifications', 'microphone', 'geolocation'];
-    callback(allowed.includes(permission));
-  });
+  mainWin.loadURL(BASE_URL);
+  mainWin.once('ready-to-show', () => mainWin!.show());
 
-  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    const allowed = ['media', 'notifications', 'microphone', 'geolocation'];
-    return allowed.includes(permission);
-  });
-
-  win.loadURL(isDev ? 'http://localhost:3000' : APP_URL);
-
-  win.once('ready-to-show', () => win.show());
-
-  // Open links with target="_blank" in the system browser, not a new Electron window
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  mainWin.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  // Catch any navigation away from the app domain and open in browser
-  win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(APP_URL) && !url.startsWith('http://localhost') && !url.startsWith('https://justdilo-app')) {
+  mainWin.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(APP_URL) && !url.startsWith('http://localhost')) {
       event.preventDefault();
       shell.openExternal(url);
     }
   });
 
-  return win;
+  return mainWin;
+}
+
+function createWidget() {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+
+  widgetWin = new BrowserWindow({
+    width: 340,
+    height: 520,
+    x: width - 356,
+    y: height - 536,
+    resizable: false,
+    alwaysOnTop: true,
+    frame: false,
+    transparent: true,
+    hasShadow: true,
+    skipTaskbar: true,
+    title: 'JustDilo Widget',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  widgetWin.loadURL(`${BASE_URL}/widget`);
+
+  widgetWin.on('closed', () => { widgetWin = null; });
+
+  return widgetWin;
+}
+
+function createTray() {
+  const icon = nativeImage.createFromPath(path.join(__dirname, '../build/icons/icon.png')).resize({ width: 16, height: 16 });
+  tray = new Tray(icon);
+  tray.setToolTip('JustDilo');
+
+  const updateMenu = () => {
+    const isWidgetVisible = widgetWin && !widgetWin.isDestroyed();
+    const menu = Menu.buildFromTemplate([
+      { label: 'Open JustDilo', click: () => { mainWin ? mainWin.show() : createWindow(); } },
+      {
+        label: isWidgetVisible ? 'Hide Widget' : 'Show Widget',
+        click: () => {
+          if (isWidgetVisible) {
+            widgetWin!.close();
+          } else {
+            createWidget();
+          }
+          updateMenu();
+        },
+      },
+      { type: 'separator' },
+      { label: 'Quit', click: () => app.quit() },
+    ]);
+    tray!.setContextMenu(menu);
+  };
+
+  updateMenu();
+  tray.on('click', () => { mainWin ? mainWin.show() : createWindow(); });
 }
 
 app.whenReady().then(() => {
+  setupPermissions();
   createWindow();
+  createWidget();
+  createTray();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else mainWin?.show();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // Keep app running in tray on all platforms
 });
