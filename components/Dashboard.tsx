@@ -13,7 +13,10 @@ import TaskFeed from "./TaskFeed";
 import QuickAdd from "./QuickAdd";
 import SearchBar from "./SearchBar";
 import NicknameModal from "./NicknameModal";
+import TranscriptDebug from "./TranscriptDebug";
 import type { Task } from "@/lib/types";
+
+const DEV_EMAIL = "yorohn@duck.com";
 
 function isSpanishText(text: string): boolean {
   return /[¿¡áéíóúñüÁÉÍÓÚÑ]|\b(el|la|los|las|un|una|que|de|en|es|por|para|con|hoy|mañana|tareas|urgente|semana)\b/i.test(text);
@@ -56,6 +59,8 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
   );
   const [, start] = useTransition();
   const { speak } = useTTS();
+  const isDevMode = userEmail === DEV_EMAIL;
+  const [debugData, setDebugData] = useState<any>(null);
 
   // 1-hour warning — client-side scheduler (runs while app is open)
   useEffect(() => {
@@ -132,6 +137,7 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
   }, [voiceOn, speak]);
 
   const handleVoiceResult = useCallback((json: any) => {
+    if (isDevMode) setDebugData(json);
     const intent = json.intent ?? "CREATE_TASK";
 
     if (intent === "UPDATE_TASK" && json.updated_tasks?.length) {
@@ -164,7 +170,7 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
     if ((intent === "UPDATE_TASK" || intent === "DELETE_TASK" || intent === "COMPLETE_TASK") && json.not_found) {
       toast.warning("Couldn't find that task");
     }
-  }, [voiceOn, speak]);
+  }, [voiceOn, speak, isDevMode]);
 
   function onQuickAddTasks(newTasks: Task[], summary: string, groupCount: number) {
     onNewTasks(newTasks, "", summary, groupCount);
@@ -261,6 +267,9 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
   return (
     <main className="min-h-dvh max-w-2xl mx-auto px-5 pb-40 pt-safe-6">
       {showNicknameModal && <NicknameModal onSave={handleNicknameSave} />}
+      {isDevMode && debugData && (
+        <TranscriptDebug data={debugData} onClose={() => setDebugData(null)} />
+      )}
 
       <header className="flex items-center justify-between mb-6">
         <div>
