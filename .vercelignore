@@ -1,0 +1,7 @@
+electron/
+dist-electron/
+release/
+build/
+node_modules/electron/
+node_modules/electron-builder/
+scripts/gen-electron-icons.mjs
