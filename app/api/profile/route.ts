@@ -28,7 +28,7 @@ export async function PATCH(req: Request) {
 
   const { data, error } = await supabase
     .from("profiles")
-    .update({ nickname: body.nickname.trim() || null })
+    .update({ nickname: body.nickname.trim() })
     .eq("id", user.id)
     .select("id, email, nickname")
     .single();

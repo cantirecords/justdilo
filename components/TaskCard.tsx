@@ -4,6 +4,7 @@ import { Trash2, Clock, ChevronDown, Pencil, Plus, Check, MoreHorizontal } from 
 import { format, isToday, isTomorrow, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { CATEGORY_CONFIG } from "@/lib/categories";
+import { detectCategory } from "@/lib/detectCategory";
 import ProgressRing from "./ProgressRing";
 import CheckButton from "./CheckButton";
 import RescheduleMenu from "./RescheduleMenu";
@@ -45,9 +46,14 @@ export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTa
   const completed = tasks.filter((t) => t.completed).length;
   const allDone = completed === tasks.length;
 
-  // Category: use the first task that has one, falling back to checking all tasks
-  const category = tasks.find((t) => t.category)?.category ?? null;
-  const catConfig = category ? CATEGORY_CONFIG[category] : null;
+  // Category: use DB value, fall back to keyword detection on group name / task titles
+  const category = tasks.find((t) => t.category)?.category
+    ?? detectCategory(groupName)
+    ?? tasks.reduce<string | null>((found, t) => found ?? detectCategory(t.title), null);
+  const catConfig = category ? CATEGORY_CONFIG[category as keyof typeof CATEGORY_CONFIG] : null;
+  const recurringTypes = [...new Set(tasks.filter((t) => t.recurring_type).map((t) => t.recurring_type!))];
+  const recurringType = recurringTypes.length === 1 ? recurringTypes[0] : recurringTypes.length > 1 ? "custom" : null;
+  const RECURRING_LABEL: Record<string, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", custom: "Recurring" };
 
   function commitGroupRename() {
     setEditingGroup(false);
@@ -70,10 +76,15 @@ export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTa
       )}>
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
+            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
               {catConfig && (
-                <span className={cn("text-[9px] px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 uppercase tracking-wide", catConfig.badge)}>
+                <span className={cn("text-[8px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 uppercase tracking-wider", catConfig.badge)}>
                   {catConfig.icon} {catConfig.label}
+                </span>
+              )}
+              {recurringType && (
+                <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wide flex-shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200 border border-amber-200 dark:border-amber-500/40">
+                  ↻ {RECURRING_LABEL[recurringType]}
                 </span>
               )}
               {editingGroup ? (
@@ -267,6 +278,12 @@ function Row({ task, onUpdate, onDelete }: { task: Task } & Omit<Props, "tasks" 
             >
               {task.title}
             </span>
+
+            {task.recurring_type && (
+              <span className="text-[9px] font-bold text-amber-500 dark:text-amber-400 shrink-0" title={task.recurring_type}>
+                ↻
+              </span>
+            )}
 
             {hasNote && (
               <button

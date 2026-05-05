@@ -6,6 +6,7 @@ const PATCHABLE = new Set([
   "title", "group_name", "summary", "due_date", "priority", "completed",
   "recurring_type", "recurring_interval", "recurring_day_of_week",
   "recurring_day_of_month", "recurring_next_due", "category",
+  "reminder_minutes", "reminded_at",
 ]);
 
 function nextRecurringDue(dueISO: string, type: string): string {

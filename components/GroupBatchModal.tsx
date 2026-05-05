@@ -4,6 +4,7 @@ import { X, Trash2, AlertTriangle } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import type { Task } from "@/lib/types";
+import { detectCategory } from "@/lib/detectCategory";
 
 type Props = {
   groupName: string;
@@ -38,6 +39,12 @@ export default function GroupBatchModal({ groupName, tasks, onUpdateAll, onDelet
     const patch: Partial<Task> = {};
     if (date) patch.due_date = buildDueDate(date, time);
     if (recurring !== (undefined as any)) patch.recurring_type = recurring;
+    // Auto-detect category from group name if tasks don't already have one
+    const groupHasCategory = tasks.some((t) => t.category);
+    if (!groupHasCategory) {
+      const detected = detectCategory(groupName);
+      if (detected) patch.category = detected;
+    }
     if (Object.keys(patch).length > 0) onUpdateAll(patch);
     onClose();
   };

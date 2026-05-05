@@ -34,11 +34,21 @@
       "Bash(git push *)",
       "Bash(vercel deploy *)",
       "Bash(npx web-push *)",
-      "Bash(curl -s http://localhost:3000/api/push/notify)"
+      "Bash(curl -s http://localhost:3000/api/push/notify)",
+      "Bash(vercel project *)",
+      "Read(//Users/cantirecords/Documents/CLAUDE\\\\ CODE/ANTIGRAVITY/JUSTDILO.APP/components/**)",
+      "Read(//Users/cantirecords/Documents/**)",
+      "Bash(curl -s \"https://justdilo-app.vercel.app/api/push/reminder\")",
+      "Bash(xargs ls *)",
+      "Bash(node scripts/gen-electron-icons.mjs)",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(git remote *)"
     ],
     "additionalDirectories": [
       "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/public",
-      "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/app/api/ideas"
+      "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/app/api/ideas",
+      "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/app/api/ideas/[id]"
     ]
   }
 }

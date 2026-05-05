@@ -34,6 +34,7 @@ export async function sendPushToUser(
   }
 }
 
+
 export async function sendPushToSubscribed(
   payload: { title: string; body: string; url?: string },
   userIds?: string[],

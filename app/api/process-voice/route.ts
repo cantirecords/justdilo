@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { extractTasks, resolveDue, transcribeAudio, answerQuestion } from "@/lib/ai";
+import { detectCategory } from "@/lib/detectCategory";
 import type { Task } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -209,6 +210,7 @@ export async function POST(req: Request) {
         const note = typeof t === "object" && t.note ? t.note : null;
         const taskDue = typeof t === "object" && t.due ? t.due : null;
         const due_date = resolveDue(taskDue ?? g.due ?? null, utcOffset)?.toISOString() ?? null;
+        const category = g.category ?? detectCategory(resolvedGroupName) ?? detectCategory(title);
         return {
           user_id: user.id,
           capture_id: capture?.id ?? null,
@@ -217,7 +219,7 @@ export async function POST(req: Request) {
           summary: note || g.summary || null,
           due_date,
           priority: g.priority ?? null,
-          category: g.category ?? null,
+          category,
           completed: false,
         };
       });

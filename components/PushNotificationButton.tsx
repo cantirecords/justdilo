@@ -59,7 +59,11 @@ export default function PushNotificationButton() {
       await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh: sub.toJSON().keys!.p256dh, auth: sub.toJSON().keys!.auth } }),
+        body: JSON.stringify({
+          endpoint: sub.endpoint,
+          keys: { p256dh: sub.toJSON().keys!.p256dh, auth: sub.toJSON().keys!.auth },
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
       });
 
       setState("subscribed");

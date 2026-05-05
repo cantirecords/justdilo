@@ -8,13 +8,15 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { endpoint, keys } = await req.json();
+  const { endpoint, keys, timezone } = await req.json();
   if (!endpoint || !keys?.p256dh || !keys?.auth) {
     return NextResponse.json({ error: "invalid subscription" }, { status: 400 });
   }
 
+  const tz = typeof timezone === "string" && timezone.length > 0 ? timezone : "UTC";
+
   const { error } = await supabase.from("push_subscriptions").upsert(
-    { user_id: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth },
+    { user_id: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth, timezone: tz },
     { onConflict: "user_id,endpoint" },
   );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

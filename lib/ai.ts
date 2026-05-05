@@ -130,6 +130,7 @@ If the user says "comprar comida" → title MUST be "Comprar comida" NOT "Buy fo
 - Group related tasks by person/project/context.
 - Write overall_summary (1-2 sentences) IN THE USER'S LANGUAGE.
 - Keep task titles concise and verb-first. Spanish: "Pagar factura". English: "Send invoice".
+- Group names MUST be timeless. NEVER include relative time words in the name: no hoy, mañana, today, tomorrow, tonight, esta noche, esta semana, this week, next week, próxima semana, lunes, Monday, etc. The "due" field carries all timing. Examples: "Reuniones y tareas de mañana" → name: "Reuniones y tareas". "Tasks for today" → name: "Tasks". "Monday errands" → name: "Errands".
 - Group "due": the main date/time anchor for the group (e.g. "tomorrow at 7pm").
 - Task "due": if a specific subtask has its OWN time, set it on the task. Otherwise null (inherits group).
   Example: user says "levantarme a las 7am, comprar regalo a las 9am, recoger pastel a las 12pm, fiesta a las 7pm"

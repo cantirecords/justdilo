@@ -12,6 +12,7 @@ import FloatingWidget from "./FloatingWidget";
 import TaskFeed from "./TaskFeed";
 import QuickAdd from "./QuickAdd";
 import SearchBar from "./SearchBar";
+import NicknameModal from "./NicknameModal";
 import type { Task } from "@/lib/types";
 
 function isSpanishText(text: string): boolean {
@@ -42,8 +43,11 @@ function buildVoiceReply(tasks: Task[], transcript: string): string {
   }
 }
 
-export default function Dashboard({ initialTasks, userEmail }: { initialTasks: Task[]; userEmail: string }) {
+export default function Dashboard({ initialTasks, userEmail, initialNickname }: { initialTasks: Task[]; userEmail: string; initialNickname: string | null }) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [nickname, setNickname] = useState<string | null>(initialNickname);
+  // null = no nickname yet → show modal; undefined = already checked
+  const [showNicknameModal, setShowNicknameModal] = useState(initialNickname === null);
   const [processing, setProcessing] = useState(false);
   const [phase, setPhase] = useState<ProcessPhase>("idle");
   const [search, setSearch] = useState("");
@@ -216,6 +220,8 @@ export default function Dashboard({ initialTasks, userEmail }: { initialTasks: T
               due_date: deleted.due_date,
               priority: deleted.priority,
               category: deleted.category,
+              summary: deleted.summary,
+              reminder_minutes: deleted.reminder_minutes,
             }),
           });
           if (res.ok) {
@@ -247,13 +253,24 @@ export default function Dashboard({ initialTasks, userEmail }: { initialTasks: T
   );
   const micRef = useRef<MicButtonHandle>(null);
 
+  function handleNicknameSave(saved: string) {
+    setNickname(saved || null);
+    setShowNicknameModal(false);
+  }
+
   return (
-    <main className="min-h-dvh max-w-2xl mx-auto px-5 pb-40 pt-6">
+    <main className="min-h-dvh max-w-2xl mx-auto px-5 pb-40 pt-safe-6">
+      {showNicknameModal && <NicknameModal onSave={handleNicknameSave} />}
+
       <header className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">JustDilo</h1>
           <p className="text-xs text-muted-foreground">
-            {pending > 0 ? `${pending} task${pending !== 1 ? "s" : ""} pending` : userEmail}
+            {pending > 0
+              ? `${pending} task${pending !== 1 ? "s" : ""} pending`
+              : nickname
+              ? `hey, ${nickname}`
+              : userEmail}
           </p>
         </div>
         <div className="flex items-center gap-1">

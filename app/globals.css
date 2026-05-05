@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .pt-safe-6 {
+    padding-top: max(1.5rem, env(safe-area-inset-top));
+  }
+}
+
 @layer base {
   :root {
     --background: 0 0% 100%;

@@ -6,18 +6,44 @@ import { isToday, isPast, parseISO, differenceInDays } from "date-fns";
 
 export const runtime = "nodejs";
 
+function localHour(timezone: string): number {
+  return parseInt(
+    new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: timezone }).format(new Date()),
+    10,
+  );
+}
+
 export async function GET() {
   const supabase = createSupabaseAdmin();
 
-  // Get all users with push subscriptions
   const { data: subs } = await supabase
-    .from("push_subscriptions").select("user_id");
+    .from("push_subscriptions").select("user_id, timezone");
   if (!subs?.length) return NextResponse.json({ sent: 0 });
 
-  const userIds = [...new Set(subs.map((s) => s.user_id))];
+  // Dedupe users, keeping the first timezone seen per user
+  const userMap = new Map<string, string>();
+  for (const s of subs) {
+    if (!userMap.has(s.user_id)) userMap.set(s.user_id, s.timezone ?? "UTC");
+  }
+
+  // Batch-fetch nicknames for all users in one query
+  const userIds = [...userMap.keys()];
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, nickname")
+    .in("id", userIds);
+  const nicknameMap = new Map<string, string | null>(
+    (profiles ?? []).map((p) => [p.id, p.nickname ?? null]),
+  );
+
   let sent = 0;
 
-  for (const userId of userIds) {
+  for (const [userId, timezone] of userMap) {
+    // Only send when it's 7am local time for this user
+    if (localHour(timezone) !== 7) continue;
+
+    const name = nicknameMap.get(userId) || null; // "" (skipped) → null
+
     const { data: tasks } = await supabase
       .from("tasks")
       .select("title, priority, due_date, completed")
@@ -32,7 +58,7 @@ export async function GET() {
     );
 
     if (todayTasks.length > 0) {
-      const msg = await morningBrief(todayTasks);
+      const msg = await morningBrief(todayTasks, name);
       await sendPushToUser(userId, msg);
       sent++;
     }
@@ -43,12 +69,12 @@ export async function GET() {
       const due = parseISO(t.due_date);
       if (!isPast(due) || isToday(due)) return false;
       const days = differenceInDays(new Date(), due);
-      return days === 3; // Only nudge once — on day 3
+      return days === 3;
     });
 
     for (const task of stuckTasks.slice(0, 2)) {
       const days = differenceInDays(new Date(), parseISO(task.due_date));
-      const msg = await stuckNudge(task.title, days);
+      const msg = await stuckNudge(task.title, days, name);
       await sendPushToUser(userId, { ...msg, url: "/" });
       sent++;
     }

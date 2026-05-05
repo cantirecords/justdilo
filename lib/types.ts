@@ -50,4 +50,6 @@ export type Task = {
   recurring_next_due: string | null;
   recurring_parent_id: string | null;
   category: TaskCategory | null;
+  reminder_minutes: number | null;
+  reminded_at: string | null;
 };

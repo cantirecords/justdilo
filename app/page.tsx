@@ -9,11 +9,16 @@ export default async function Home() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: tasks } = await supabase
-    .from("tasks")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(200);
+  const [{ data: tasks }, { data: profile }] = await Promise.all([
+    supabase.from("tasks").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(200),
+    supabase.from("profiles").select("nickname").eq("id", user.id).single(),
+  ]);
 
-  return <Dashboard initialTasks={tasks ?? []} userEmail={user.email ?? ""} />;
+  return (
+    <Dashboard
+      initialTasks={tasks ?? []}
+      userEmail={user.email ?? ""}
+      initialNickname={profile?.nickname ?? null}
+    />
+  );
 }

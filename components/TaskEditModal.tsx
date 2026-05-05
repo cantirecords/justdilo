@@ -20,6 +20,14 @@ const PRIORITIES: { value: Task["priority"]; label: string }[] = [
   { value: "high", label: "High" },
 ];
 
+const REMINDERS: { value: number | null; label: string }[] = [
+  { value: null, label: "None" },
+  { value: 5, label: "5 min" },
+  { value: 10, label: "10 min" },
+  { value: 30, label: "30 min" },
+  { value: 60, label: "1 hr" },
+];
+
 const RECURRING: { value: Task["recurring_type"]; label: string }[] = [
   { value: null, label: "None" },
   { value: "daily", label: "Daily" },
@@ -54,6 +62,7 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
   const { date: initDate, time: initTime } = parseDate(task.due_date);
   const [date, setDate] = useState(initDate);
   const [time, setTime] = useState(initTime);
+  const [reminderMinutes, setReminderMinutes] = useState<number | null>(task.reminder_minutes ?? null);
 
   const saveRef = useRef<() => void>(() => {});
   saveRef.current = () => {
@@ -65,6 +74,8 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
       recurring_type: recurringType,
       due_date: buildDueDate(date, time),
       category,
+      reminder_minutes: time ? reminderMinutes : null,
+      reminded_at: null,
     });
     onClose();
   };
@@ -135,6 +146,28 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
               />
             </div>
           </div>
+
+          {time && (
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">Remind me</label>
+              <div className="flex gap-2">
+                {REMINDERS.map(({ value, label }) => (
+                  <button
+                    key={label}
+                    onClick={() => setReminderMinutes(value)}
+                    className={cn(
+                      "flex-1 py-2 rounded-xl text-xs font-medium border transition",
+                      reminderMinutes === value
+                        ? "bg-foreground text-background border-foreground"
+                        : "bg-muted/30 border-border text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">Priority</label>
