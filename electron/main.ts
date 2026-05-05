@@ -1,7 +1,7 @@
 import { app, BrowserWindow, session, shell, nativeTheme } from 'electron';
 import path from 'path';
 
-const APP_URL = 'https://justdilo.app';
+const APP_URL = 'https://justdilo-app.vercel.app';
 const isDev = process.env.NODE_ENV === 'development';
 
 function createWindow() {
@@ -48,7 +48,7 @@ function createWindow() {
 
   // Catch any navigation away from the app domain and open in browser
   win.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith(APP_URL) && !url.startsWith('http://localhost')) {
+    if (!url.startsWith(APP_URL) && !url.startsWith('http://localhost') && !url.startsWith('https://justdilo-app')) {
       event.preventDefault();
       shell.openExternal(url);
     }
