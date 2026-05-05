@@ -17,16 +17,16 @@ function loadMicBounds(): Electron.Rectangle | null {
   try { return JSON.parse(fs.readFileSync(getMicBoundsFile(), 'utf-8')); } catch { return null; }
 }
 
-const WIDGET_STYLES = {
-  mic:      { label: '🎙 Mic only — resizable',      path: '/widget/mic',   width: 160, height: 160, resizable: true  },
-  nano:     { label: '● Nano — floating pill',        path: '/widget/nano',  width: 200, height: 60,  resizable: false },
-  mini:     { label: '◼ Mini — compact bar',          path: '/widget/mini',  width: 288, height: 100, resizable: false },
-  focus:    { label: '◆ Focus — one task',            path: '/widget/focus', width: 288, height: 172, resizable: false },
-  standard: { label: '▣ Standard — mic + tasks',      path: '/widget',       width: 288, height: 380, resizable: false },
-  full:     { label: '▦ Full — all tasks',            path: '/widget/full',  width: 288, height: 480, resizable: false },
-} as const;
+const WIDGET_STYLES: Record<string, { label: string; path: string; width: number; height: number; resizable: boolean }> = {
+  mic:      { label: '🎙 Mic only — resizable',  path: '/widget/mic',   width: 160, height: 160, resizable: true  },
+  nano:     { label: '● Nano — floating pill',    path: '/widget/nano',  width: 200, height: 60,  resizable: false },
+  mini:     { label: '◼ Mini — compact bar',      path: '/widget/mini',  width: 288, height: 100, resizable: false },
+  focus:    { label: '◆ Focus — one task',        path: '/widget/focus', width: 288, height: 172, resizable: false },
+  standard: { label: '▣ Standard — mic + tasks',  path: '/widget',       width: 288, height: 380, resizable: false },
+  full:     { label: '▦ Full — all tasks',        path: '/widget/full',  width: 288, height: 480, resizable: false },
+};
 
-type WidgetStyle = keyof typeof WIDGET_STYLES;
+type WidgetStyle = 'mic' | 'nano' | 'mini' | 'focus' | 'standard' | 'full';
 
 let mainWin: BrowserWindow | null = null;
 let widgetWin: BrowserWindow | null = null;
@@ -80,7 +80,7 @@ function createWidget(style: WidgetStyle = currentStyle) {
 
   if (style === 'mic') {
     const saved = loadMicBounds();
-    if (saved) { x = saved.x; y = saved.y; w = saved.width; h = saved.height; }
+    if (saved) { x = saved.x; y = saved.y; w = Math.max(saved.width, 100); h = Math.max(saved.height, 100); }
   }
 
   widgetWin = new BrowserWindow({
