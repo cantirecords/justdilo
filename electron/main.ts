@@ -58,6 +58,7 @@ function createWindow() {
   });
   mainWin.loadURL(BASE_URL);
   mainWin.once('ready-to-show', () => mainWin!.show());
+  mainWin.on('closed', () => { mainWin = null; });
   mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   mainWin.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(APP_URL) && !url.startsWith('http://localhost')) {
@@ -138,14 +139,18 @@ function buildTrayMenu() {
   }));
 
   const menu = Menu.buildFromTemplate([
-    { label: 'Open JustDilo', click: () => { mainWin ? mainWin.show() : createWindow(); } },
+    { label: 'Open JustDilo', click: () => showMain() },
     { type: 'separator' },
     { label: 'Widget Style', enabled: false },
     ...styleItems,
     { type: 'separator' },
     {
       label: isVisible ? 'Hide Widget' : 'Show Widget',
-      click: () => { isVisible ? widgetWin!.close() : createWidget(); buildTrayMenu(); },
+      click: () => {
+        if (widgetWin && !widgetWin.isDestroyed()) widgetWin.close();
+        else createWidget();
+        buildTrayMenu();
+      },
     },
     { type: 'separator' },
     { label: 'Quit JustDilo', click: () => app.quit() },
@@ -154,12 +159,17 @@ function buildTrayMenu() {
   tray!.setContextMenu(menu);
 }
 
+function showMain() {
+  if (mainWin && !mainWin.isDestroyed()) { mainWin.show(); mainWin.focus(); }
+  else createWindow();
+}
+
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, '../build/icons/icon.png')).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
   tray.setToolTip('JustDilo');
   buildTrayMenu();
-  tray.on('click', () => { mainWin ? mainWin.show() : createWindow(); });
+  tray.on('click', () => showMain());
 }
 
 app.whenReady().then(() => {
@@ -167,7 +177,7 @@ app.whenReady().then(() => {
   createWindow();
   createWidget('mic'); // default to mic widget
   createTray();
-  app.on('activate', () => { mainWin ? mainWin.show() : createWindow(); });
+  app.on('activate', () => showMain());
 });
 
 app.on('window-all-closed', () => { /* keep alive in tray */ });
