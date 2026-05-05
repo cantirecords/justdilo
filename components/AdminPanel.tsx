@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { X, RefreshCw, Mic, CheckSquare, BarChart2, Users, Brain, Zap, AlertTriangle, TrendingUp, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { X, RefreshCw, Mic, CheckSquare, BarChart2, Users, Brain, Zap, AlertTriangle, TrendingUp, Clock, ChevronDown, ChevronUp, Trash2, Copy, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -17,6 +17,9 @@ type Stats = {
     langEsPct: number; langEnPct: number; langMixedPct: number;
     totalCaptures30d: number; capturesWithTasks: number;
     voiceCaptures: number; textCaptures: number;
+    failureBreakdown?: Record<string, number>;
+    emptyCount?: number;
+    correctionsCount?: number;
   };
   behavior: {
     dau: number; wau: number; dauWauRatio: number;
@@ -161,16 +164,167 @@ function OverviewTab({ stats }: { stats: Stats }) {
   );
 }
 
+const FAILURE_LABELS: Record<string, string> = {
+  too_short: "Too short",
+  question: "Question/Query",
+  background_noise: "Background noise",
+  no_action_verbs: "No action verbs",
+  too_vague: "Too vague",
+  unclear_intent: "Unclear intent",
+};
+
+const SETUP_SQL = `CREATE TABLE IF NOT EXISTS prompt_corrections (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at timestamptz DEFAULT now(),
+  original_transcript text NOT NULL,
+  correct_intent text NOT NULL DEFAULT 'CREATE_TASK',
+  correct_tasks jsonb DEFAULT '[]',
+  issue_type text,
+  admin_note text
+);`;
+
+type CorrectionRow = {
+  id: string;
+  created_at: string;
+  original_transcript: string;
+  correct_intent: string;
+  issue_type: string | null;
+  admin_note: string | null;
+};
+
+function CorrectionsSection() {
+  const [corrections, setCorrections] = useState<CorrectionRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [setupNeeded, setSetupNeeded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  async function fetchCorrections() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/corrections");
+      const json = await res.json();
+      if (json.setup_needed) { setSetupNeeded(true); return; }
+      setCorrections(json.corrections ?? []);
+      setLoaded(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteCorrection(id: string) {
+    setDeleting(id);
+    try {
+      await fetch("/api/admin/corrections", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+      setCorrections(prev => prev.filter(c => c.id !== id));
+    } finally {
+      setDeleting(null);
+    }
+  }
+
+  function copySQL() {
+    navigator.clipboard.writeText(SETUP_SQL);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (setupNeeded) {
+    return (
+      <div className="space-y-3">
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+          <p className="text-[12px] text-amber-300 font-medium mb-1">Table not created yet</p>
+          <p className="text-[11px] text-zinc-500 mb-3">Run this SQL in your Supabase dashboard to enable the corrections feedback loop.</p>
+          <pre className="text-[10px] text-zinc-400 bg-zinc-900 border border-zinc-800 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed">{SETUP_SQL}</pre>
+          <button onClick={copySQL} className="mt-2 flex items-center gap-1.5 text-[11px] text-zinc-500 hover:text-zinc-200 transition">
+            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            {copied ? "Copied!" : "Copy SQL"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!loaded && !loading) {
+    return (
+      <button onClick={fetchCorrections} className="text-[11px] text-zinc-500 hover:text-zinc-300 transition underline underline-offset-2">
+        Load corrections
+      </button>
+    );
+  }
+
+  if (loading) {
+    return <div className="flex items-center gap-2 text-[11px] text-zinc-600"><RefreshCw className="w-3 h-3 animate-spin" /> Loading…</div>;
+  }
+
+  if (corrections.length === 0) {
+    return <p className="text-[12px] text-zinc-600 italic">No corrections saved yet. Mark bad transcriptions from the debug panel.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {corrections.map(c => (
+        <div key={c.id} className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                {c.issue_type && (
+                  <span className="text-[9px] font-semibold uppercase tracking-wider bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">
+                    {FAILURE_LABELS[c.issue_type] ?? c.issue_type}
+                  </span>
+                )}
+                <span className="text-[9px] text-zinc-600 bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded font-mono">{c.correct_intent}</span>
+                <span className="text-[10px] text-zinc-700 ml-auto">{timeAgo(c.created_at)}</span>
+              </div>
+              <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2">"{c.original_transcript.slice(0, 100)}{c.original_transcript.length > 100 ? "…" : ""}"</p>
+              {c.admin_note && <p className="text-[10px] text-zinc-600 mt-0.5 italic">{c.admin_note}</p>}
+            </div>
+            <button
+              onClick={() => deleteCorrection(c.id)}
+              disabled={deleting === c.id}
+              className="p-1 rounded hover:bg-red-500/10 hover:text-red-400 text-zinc-700 transition shrink-0"
+            >
+              {deleting === c.id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function QualityTab({ q }: { q: Stats["aiQuality"] }) {
   const convColor = q.conversionRate >= 0.75 ? "text-emerald-400" : q.conversionRate >= 0.5 ? "text-yellow-400" : "text-red-400";
+  const failureBreakdown = q.failureBreakdown ?? {};
+  const maxFailure = Math.max(...Object.values(failureBreakdown), 1);
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3">
         <Metric label="Conversion rate" value={pct(q.conversionRate)} sub="> 75% is healthy" color={convColor} />
         <Metric label="Avg tasks / capture" value={q.avgTasksPerCapture.toFixed(1)} color="text-blue-400" />
-        <Metric label="Empty captures (0 tasks)" value={pct(q.emptyRate)} color={q.emptyRate > 0.25 ? "text-red-400" : "text-zinc-100"} />
-        <Metric label="Captures (30d)" value={String(q.totalCaptures30d)} sub={`${q.capturesWithTasks} produced tasks`} />
+        <Metric label="Empty captures (0 tasks)" value={pct(q.emptyRate)} color={q.emptyRate > 0.25 ? "text-red-400" : "text-zinc-100"} sub={q.emptyCount !== undefined ? `${q.emptyCount} captures` : undefined} />
+        <Metric label="AI corrections saved" value={String(q.correctionsCount ?? 0)} color={(q.correctionsCount ?? 0) > 0 ? "text-emerald-400" : "text-zinc-500"} sub="few-shot training examples" />
       </div>
+
+      {Object.keys(failureBreakdown).length > 0 && (
+        <Collapsible title={`Failure breakdown (${q.emptyCount ?? 0} empty captures)`} defaultOpen>
+          <div className="space-y-2">
+            {Object.entries(failureBreakdown)
+              .sort(([, a], [, b]) => b - a)
+              .map(([reason, count]) => (
+                <div key={reason} className="flex items-center gap-3">
+                  <span className="text-[11px] text-zinc-500 w-32 shrink-0">{FAILURE_LABELS[reason] ?? reason}</span>
+                  <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-red-500/70" style={{ width: `${(count / maxFailure) * 100}%` }} />
+                  </div>
+                  <span className="text-[11px] text-zinc-400 w-4 text-right tabular-nums">{count}</span>
+                </div>
+              ))}
+          </div>
+          <p className="text-[10px] text-zinc-700 pt-1">Rule-based classification — no extra LLM calls.</p>
+        </Collapsible>
+      )}
 
       <Collapsible title="Voice vs text (30d)" defaultOpen>
         <div className="space-y-2">
@@ -205,6 +359,10 @@ function QualityTab({ q }: { q: Stats["aiQuality"] }) {
             </div>
           ))}
         </div>
+      </Collapsible>
+
+      <Collapsible title={`Corrections (few-shot training)${(q.correctionsCount ?? 0) > 0 ? ` · ${q.correctionsCount}` : ""}`}>
+        <CorrectionsSection />
       </Collapsible>
     </div>
   );

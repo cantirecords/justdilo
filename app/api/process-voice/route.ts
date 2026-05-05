@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase/server";
-import { extractTasks, resolveDue, transcribeAudio, answerQuestion } from "@/lib/ai";
+import { extractTasks, resolveDue, transcribeAudio, answerQuestion, classifyFailure } from "@/lib/ai";
+import { getCorrections } from "@/lib/corrections";
 import { detectCategory } from "@/lib/detectCategory";
 import type { Task } from "@/lib/types";
 
@@ -67,6 +68,7 @@ export async function POST(req: Request) {
 
   const form = await req.formData();
   const utcOffset = Number(form.get("utcOffset") ?? 0);
+  const timezone = (form.get("timezone") as string | null) || undefined;
   const audio = form.get("audio");
   if (!(audio instanceof File)) {
     return NextResponse.json({ error: "no audio" }, { status: 400 });
@@ -100,9 +102,10 @@ export async function POST(req: Request) {
     .single();
   if (captureErr) console.error("[process-voice] captures insert error:", captureErr.message);
 
+  const corrections = await getCorrections();
   let result: Awaited<ReturnType<typeof extractTasks>>;
   try {
-    result = await extractTasks(transcript);
+    result = await extractTasks(transcript, corrections);
   } catch (e) {
     console.error("extract failed", e);
     return NextResponse.json({ error: "AI couldn't process your request. Please try again.", transcript }, { status: 502 });
@@ -150,7 +153,7 @@ export async function POST(req: Request) {
     if (intent === "UPDATE_TASK") {
       const patch: Partial<Task> = {};
       if (result.update_due) {
-        const resolved = resolveDue(result.update_due, utcOffset);
+        const resolved = resolveDue(result.update_due, utcOffset, timezone);
         if (resolved) patch.due_date = resolved.toISOString();
       }
       if (result.update_title) patch.title = result.update_title;
@@ -217,7 +220,7 @@ export async function POST(req: Request) {
         const title = typeof t === "string" ? t : t.title;
         const note = typeof t === "object" && t.note ? t.note : null;
         const taskDue = typeof t === "object" && t.due ? t.due : null;
-        const due_date = resolveDue(taskDue ?? g.due ?? null, utcOffset)?.toISOString() ?? null;
+        const due_date = resolveDue(taskDue ?? g.due ?? null, utcOffset, timezone)?.toISOString() ?? null;
         const category = g.category ?? detectCategory(resolvedGroupName) ?? detectCategory(title);
         return {
           user_id: user.id,
@@ -247,7 +250,11 @@ export async function POST(req: Request) {
     inserted = data ?? [];
   }
 
-  console.log("[process-voice] CREATE_TASK: groups=%d tasks_inserted=%d dupes=%d", groups.length, inserted.length, duplicateCount.n);
+  const failure_reason = inserted.length === 0 && duplicateCount.n === 0
+    ? classifyFailure(transcript)
+    : null;
+
+  console.log("[process-voice] CREATE_TASK: groups=%d tasks_inserted=%d dupes=%d%s", groups.length, inserted.length, duplicateCount.n, failure_reason ? ` failure=${failure_reason}` : "");
   return NextResponse.json({
     intent,
     transcript,
@@ -256,6 +263,7 @@ export async function POST(req: Request) {
     tasks: inserted,
     duplicates_skipped: duplicateCount.n,
     recurring: recurringGroups,
+    failure_reason,
     updated_tasks: [],
     deleted_task_ids: [],
     completed_task_ids: [],

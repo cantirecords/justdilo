@@ -15,7 +15,7 @@ export async function transcribeAudio(file: File): Promise<{ text: string; provi
       file,
       model: "whisper-large-v3-turbo",
       response_format: "text",
-      prompt: "Task list, reminders, calls, meetings, deadlines. May include English, Spanish, or mixed speech.",
+      prompt: "Tasks, reminders, calls, meetings, deadlines, to-do items, appointments, errands. English, Spanish, or Spanglish. Capture every word precisely.",
     } as any);
     return { text: typeof r === "string" ? r : (r as any).text ?? "", provider: "groq", ms: Date.now() - t0 };
   }
@@ -23,7 +23,7 @@ export async function transcribeAudio(file: File): Promise<{ text: string; provi
   const r = await openai.audio.transcriptions.create({
     file,
     model: "whisper-1",
-    prompt: "Task list, reminders, calls, meetings, deadlines. May include English, Spanish, or mixed speech.",
+    prompt: "Tasks, reminders, calls, meetings, deadlines, to-do items, appointments, errands. English, Spanish, or Spanglish. Capture every word precisely.",
   });
   return { text: r.text, provider: "openai", ms: Date.now() - t0 };
 }
@@ -142,7 +142,8 @@ If the user says "comprar comida" → title MUST be "Comprar comida" NOT "Buy fo
   → task "Iniciar fiesta": due null (inherits group 7pm)
 - Detect priority: urgent/ASAP/important/critical/urgente/importante → "high". Otherwise null.
 - Detect recurring: "every Monday", "daily", "weekly", "cada lunes", "diario" → set recurring string. Otherwise null.
-- If unclear noise or no actionable content → groups: [].
+- ALWAYS try to extract at least one task. Only return groups: [] if the transcript is pure noise, silence, or completely unintelligible (e.g., "um", "uh", "..."). If the user mentions ANYTHING — a person, place, action, event, idea — create a task for it.
+- When input is vague (e.g., "I need to think about the presentation"), create a concrete task like "Review presentation ideas".
 - Smart task expansion: break complex vague tasks into logical sub-steps.
 
 ━━ CATEGORY DETECTION ━━
@@ -216,9 +217,38 @@ async function callOpenAI(messages: { role: "system" | "user"; content: string }
 
 export type ExtractResult = TaskGroups & { _provider: string; _ms: number };
 
-export async function extractTasks(transcript: string): Promise<ExtractResult> {
+export type Correction = {
+  original_transcript: string;
+  correct_intent: string;
+  correct_tasks: any[];
+  issue_type: string | null;
+};
+
+export function classifyFailure(transcript: string): string {
+  const t = transcript.trim();
+  const lower = t.toLowerCase();
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length < 5) return "too_short";
+  if (/^(what|when|where|who|how|can you|do i|did|is there|are there|¿qué|¿cuándo|¿dónde|¿quién|¿cómo|¿cuántos)/i.test(t)) return "question";
+  const fillerRatio = words.filter(w => /^(um+|uh+|ah+|mm+|hmm+|er+|eh+)$/i.test(w)).length / words.length;
+  if (fillerRatio > 0.25) return "background_noise";
+  if (!/\b(call|send|buy|make|create|add|remind|check|pay|schedule|meet|finish|complete|write|book|review|get|go|do|need|want|should|llamar|enviar|comprar|hacer|crear|agregar|recordar|revisar|pagar|reunión|terminar|escribir|reservar|necesito|quiero|ir|poner|mandar|hablar|ver|subir|bajar|preparar|organizar|limpiar)\b/i.test(lower)) return "no_action_verbs";
+  if (words.length < 8) return "too_vague";
+  return "unclear_intent";
+}
+
+function buildSystemWithCorrections(corrections: Correction[]): string {
+  if (!corrections.length) return SYSTEM;
+  const examples = corrections.slice(0, 12).map((c, i) => {
+    const output = JSON.stringify({ intent: c.correct_intent, groups: c.correct_tasks });
+    return `[${c.issue_type ?? "correction"}] Example ${i + 1}:\nUser said: "${c.original_transcript}"\nCorrect extraction: ${output}`;
+  }).join("\n\n");
+  return `${SYSTEM}\n\n━━ LEARNED CORRECTIONS — apply these exact patterns ━━\n${examples}\n━━ END CORRECTIONS ━━`;
+}
+
+export async function extractTasks(transcript: string, corrections: Correction[] = []): Promise<ExtractResult> {
   const messages = [
-    { role: "system" as const, content: SYSTEM },
+    { role: "system" as const, content: buildSystemWithCorrections(corrections) },
     { role: "user" as const, content: transcript },
   ];
 
@@ -337,18 +367,35 @@ function extractTime(s: string): { hours: number; minutes: number } | null {
   return null;
 }
 
+// Returns the UTC offset (minutes) for an IANA timezone at a specific moment.
+// Positive = ahead of UTC (UTC+5 → 300), negative = behind (UTC-5 → -300).
+// Uses the locale-string trick: server tz cancels out in the subtraction.
+function tzOffsetAt(date: Date, tz: string): number {
+  try {
+    const utcStr = date.toLocaleString("en-US", { timeZone: "UTC" });
+    const localStr = date.toLocaleString("en-US", { timeZone: tz });
+    return (new Date(localStr).getTime() - new Date(utcStr).getTime()) / 60_000;
+  } catch {
+    return 0;
+  }
+}
+
 export function resolveDue(
   due: string | null | undefined,
   utcOffsetMinutes = 0,
+  timezone?: string,
 ): Date | null {
   if (!due) return null;
   const now = new Date();
   const lower = due.toLowerCase().trim();
 
-  // Derive the user's local "now" by shifting UTC by their offset.
-  // utcOffsetMinutes = -getTimezoneOffset() from client (e.g. -360 for UTC-6).
-  // local ms = UTC ms + offset*60*1000, so local = UTC + offset.
-  const localNow = new Date(now.getTime() + utcOffsetMinutes * 60_000);
+  // DST-safe offset: use IANA timezone when available, fall back to numeric offset.
+  // The numeric offset is a snapshot of NOW and will be wrong after DST transitions.
+  const getOffset = (date: Date): number =>
+    timezone ? tzOffsetAt(date, timezone) : utcOffsetMinutes;
+
+  // Derive the user's local "now".
+  const localNow = new Date(now.getTime() + getOffset(now) * 60_000);
 
   // Midnight of today in the user's local timezone, expressed as UTC coordinates.
   const localTodayMidnight = new Date(Date.UTC(
@@ -358,12 +405,13 @@ export function resolveDue(
   ));
 
   // Apply local hours to a local-midnight base, then convert to real UTC.
-  // UTC = local - offset  →  realUTC = localMs - utcOffsetMinutes * 60_000
+  // For the target date we re-derive the offset (handles DST across day boundaries).
   function applyTime(localMidnight: Date, time: { hours: number; minutes: number } | null): Date {
-    // null = no explicit time → 23:59 local sentinel (sorts after timed tasks)
     const { hours, minutes } = time ?? { hours: 23, minutes: 59 };
     const localMs = localMidnight.getTime() + hours * 3_600_000 + minutes * 60_000;
-    return new Date(localMs - utcOffsetMinutes * 60_000);
+    // Use the offset at the approximate target moment for DST correctness.
+    const offsetAtTarget = getOffset(new Date(localMs));
+    return new Date(localMs - offsetAtTarget * 60_000);
   }
 
   const time = extractTime(lower);

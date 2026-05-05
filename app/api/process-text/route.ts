@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase/server";
-import { extractTasks, resolveDue, answerQuestion } from "@/lib/ai";
+import { extractTasks, resolveDue, answerQuestion, classifyFailure } from "@/lib/ai";
+import { getCorrections } from "@/lib/corrections";
 import { detectCategory } from "@/lib/detectCategory";
 import type { Task } from "@/lib/types";
 
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const { text, utcOffset = 0 } = await req.json();
+  const { text, utcOffset = 0, timezone } = await req.json();
   if (!text?.trim()) return NextResponse.json({ error: "no text" }, { status: 400 });
 
   const { data: capture, error: captureErr } = await supabase
@@ -66,9 +67,10 @@ export async function POST(req: Request) {
     .select().single();
   if (captureErr) console.error("[process-text] captures insert error:", captureErr.message);
 
+  const corrections = await getCorrections();
   let result: Awaited<ReturnType<typeof extractTasks>>;
   try {
-    result = await extractTasks(text);
+    result = await extractTasks(text, corrections);
   } catch (e) {
     console.error("extract failed", e);
     return NextResponse.json({ error: "AI couldn't process your request. Please try again." }, { status: 502 });
@@ -111,7 +113,7 @@ export async function POST(req: Request) {
     if (intent === "UPDATE_TASK") {
       const patch: Partial<Task> = {};
       if (result.update_due) {
-        const resolved = resolveDue(result.update_due, utcOffset);
+        const resolved = resolveDue(result.update_due, utcOffset, timezone);
         if (resolved) patch.due_date = resolved.toISOString();
       }
       if (result.update_title) patch.title = result.update_title;
@@ -158,7 +160,7 @@ export async function POST(req: Request) {
       const title = typeof t === "string" ? t : t.title;
       const note = typeof t === "object" && t.note ? t.note : null;
       const taskDue = typeof t === "object" && t.due ? t.due : null;
-      const due_date = resolveDue(taskDue ?? g.due ?? null, utcOffset)?.toISOString() ?? null;
+      const due_date = resolveDue(taskDue ?? g.due ?? null, utcOffset, timezone)?.toISOString() ?? null;
       const category = g.category ?? detectCategory(resolvedGroupName) ?? detectCategory(title);
       return {
         user_id: user.id,
@@ -188,6 +190,10 @@ export async function POST(req: Request) {
     inserted = data ?? [];
   }
 
+  const failure_reason = inserted.length === 0 && duplicatesSkipped === 0
+    ? classifyFailure(text)
+    : null;
+
   console.log("[process-text] CREATE_TASK: groups=%d tasks_inserted=%d dupes=%d", groups.length, inserted.length, duplicatesSkipped);
   return NextResponse.json({
     intent,
@@ -195,6 +201,7 @@ export async function POST(req: Request) {
     groups,
     tasks: inserted,
     duplicates_skipped: duplicatesSkipped,
+    failure_reason,
     updated_tasks: [],
     deleted_task_ids: [],
     completed_task_ids: [],

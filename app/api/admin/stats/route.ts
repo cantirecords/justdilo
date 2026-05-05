@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
+import { classifyFailure } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -123,6 +124,22 @@ export async function GET() {
   const voicePct = captures30d.length ? voiceCaptures.length / captures30d.length : 0;
   const textPct  = captures30d.length ? textCaptures.length / captures30d.length : 0;
 
+  // Failure breakdown — classify empty captures
+  const emptyCaps = captures30d.filter(c => (tasksByCapture[c.id] ?? 0) === 0);
+  const failureMap: Record<string, number> = {};
+  for (const c of emptyCaps) {
+    const reason = classifyFailure(c.transcript ?? "");
+    failureMap[reason] = (failureMap[reason] ?? 0) + 1;
+  }
+
+  // Corrections count
+  const admin2 = createSupabaseAdmin();
+  let correctionsCount = 0;
+  try {
+    const { count } = await admin2.from("prompt_corrections").select("*", { count: "exact", head: true });
+    correctionsCount = count ?? 0;
+  } catch { /* table may not exist yet */ }
+
   return NextResponse.json({
     // Overview
     capturesByDay,
@@ -156,6 +173,9 @@ export async function GET() {
       capturesWithTasks: capturesWithTasks.length,
       voiceCaptures: voiceCaptures.length,
       textCaptures:  textCaptures.length,
+      failureBreakdown: failureMap,
+      emptyCount: emptyCaps.length,
+      correctionsCount,
     },
 
     // Behavior
