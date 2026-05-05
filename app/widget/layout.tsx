@@ -11,7 +11,7 @@ export default function WidgetLayout({ children }: { children: React.ReactNode }
       <head>
         <script dangerouslySetInnerHTML={{ __html: `(function(){var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}})();` }} />
       </head>
-      <body className="overflow-hidden">{children}</body>
+      <body className="overflow-hidden bg-transparent">{children}</body>
     </html>
   );
 }
