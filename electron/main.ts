@@ -118,15 +118,13 @@ function createWidget(style: WidgetStyle = currentStyle) {
 }
 
 function switchWidgetStyle(style: WidgetStyle) {
-  const cfg = WIDGET_STYLES[style];
-  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
-  const margin = 16;
-
   if (widgetWin && !widgetWin.isDestroyed()) {
+    widgetWin.once('closed', () => { createWidget(style); buildTrayMenu(); });
     widgetWin.close();
+  } else {
+    createWidget(style);
+    buildTrayMenu();
   }
-  createWidget(style);
-  buildTrayMenu();
 }
 
 function buildTrayMenu() {
