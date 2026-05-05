@@ -63,10 +63,10 @@ function createWidget() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
   widgetWin = new BrowserWindow({
-    width: 340,
-    height: 520,
-    x: width - 356,
-    y: height - 536,
+    width: 288,
+    height: 400,
+    x: width - 300,
+    y: height - 414,
     resizable: false,
     alwaysOnTop: true,
     frame: false,
