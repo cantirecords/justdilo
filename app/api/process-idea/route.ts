@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     const audio = form.get("audio");
     if (!(audio instanceof File)) return NextResponse.json({ error: "no audio" }, { status: 400 });
     try {
-      text = await transcribeAudio(audio);
+      ({ text } = await transcribeAudio(audio));
     } catch (e: any) {
       return NextResponse.json({ error: "Couldn't transcribe audio", detail: e?.message }, { status: 422 });
     }

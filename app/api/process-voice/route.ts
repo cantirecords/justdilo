@@ -79,8 +79,13 @@ export async function POST(req: Request) {
   if (uploadErr) console.warn("upload failed:", uploadErr.message);
 
   let transcript = "";
+  let txProvider = "groq";
+  let txMs = 0;
   try {
-    transcript = await transcribeAudio(audio);
+    const tx = await transcribeAudio(audio);
+    transcript = tx.text;
+    txProvider = tx.provider;
+    txMs = tx.ms;
   } catch (e: any) {
     return NextResponse.json(
       { error: "Couldn't hear clearly. Try again.", detail: e?.message },
@@ -102,6 +107,9 @@ export async function POST(req: Request) {
     console.error("extract failed", e);
     return NextResponse.json({ error: "AI couldn't process your request. Please try again.", transcript }, { status: 502 });
   }
+
+  const timing = { transcription_ms: txMs, extraction_ms: result._ms };
+  const aiProvider = txProvider;
 
   const intent = result.intent ?? "CREATE_TASK";
 
@@ -128,15 +136,15 @@ export async function POST(req: Request) {
         .join("\n");
       try {
         const answer = await answerQuestion(transcript, context);
-        return NextResponse.json({ intent, transcript, answer });
+        return NextResponse.json({ intent, transcript, answer, provider: aiProvider, timing });
       } catch {
-        return NextResponse.json({ intent, transcript, answer: null });
+        return NextResponse.json({ intent, transcript, answer: null, provider: aiProvider, timing });
       }
     }
 
     if (!matched.length) {
       console.log("[process-voice] intent=%s but no matching tasks found", intent);
-      return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: [], completed_task_ids: [], not_found: true });
+      return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: [], completed_task_ids: [], not_found: true, provider: aiProvider, timing });
     }
 
     if (intent === "UPDATE_TASK") {
@@ -148,7 +156,7 @@ export async function POST(req: Request) {
       if (result.update_title) patch.title = result.update_title;
       if (result.update_priority) patch.priority = result.update_priority;
       if (Object.keys(patch).length === 0) {
-        return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: [], completed_task_ids: [] });
+        return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: [], completed_task_ids: [], provider: aiProvider, timing });
       }
       const ids = matched.map((t) => t.id);
       await Promise.all(ids.map((id) =>
@@ -156,7 +164,7 @@ export async function POST(req: Request) {
       ));
       const updated_tasks = matched.map((t) => ({ ...t, ...patch }));
       console.log("[process-voice] UPDATE_TASK: updated %d tasks", ids.length);
-      return NextResponse.json({ intent, transcript, updated_tasks, deleted_task_ids: [], completed_task_ids: [] });
+      return NextResponse.json({ intent, transcript, updated_tasks, deleted_task_ids: [], completed_task_ids: [], provider: aiProvider, timing });
     }
 
     if (intent === "DELETE_TASK") {
@@ -165,7 +173,7 @@ export async function POST(req: Request) {
         supabase.from("tasks").delete().eq("id", id).eq("user_id", user.id)
       ));
       console.log("[process-voice] DELETE_TASK: deleted %d tasks", ids.length);
-      return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: ids, completed_task_ids: [] });
+      return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: ids, completed_task_ids: [], provider: aiProvider, timing });
     }
 
     if (intent === "COMPLETE_TASK") {
@@ -174,7 +182,7 @@ export async function POST(req: Request) {
         supabase.from("tasks").update({ completed: true }).eq("id", id).eq("user_id", user.id)
       ));
       console.log("[process-voice] COMPLETE_TASK: completed %d tasks", ids.length);
-      return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: [], completed_task_ids: ids });
+      return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: [], completed_task_ids: ids, provider: aiProvider, timing });
     }
   }
 
@@ -251,5 +259,7 @@ export async function POST(req: Request) {
     updated_tasks: [],
     deleted_task_ids: [],
     completed_task_ids: [],
+    provider: aiProvider,
+    timing,
   });
 }

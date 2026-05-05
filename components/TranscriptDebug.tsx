@@ -1,25 +1,30 @@
 "use client";
-import { useEffect, useRef } from "react";
-import { X, Copy, Check } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { X, Copy, Check, ChevronDown, ChevronUp, Clock, Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type DebugData = {
   transcript: string;
   intent: string;
+  provider?: string;
+  timing?: { transcription_ms?: number; extraction_ms?: number };
   tasks?: { title: string; group_name?: string; due_date?: string; priority?: string }[];
+  groups?: any[];
+  overall_summary?: string;
   updated_tasks?: { title: string }[];
   deleted_task_ids?: string[];
   completed_task_ids?: string[];
   duplicates_skipped?: number;
   answer?: string;
   not_found?: boolean;
+  target_task_keywords?: string[];
+  target_group?: string | null;
+  update_due?: string | null;
+  update_title?: string | null;
+  update_priority?: string | null;
 };
 
-type Props = {
-  data: DebugData;
-  onClose: () => void;
-};
+type Props = { data: DebugData; onClose: () => void };
 
 const INTENT_LABEL: Record<string, string> = {
   CREATE_TASK: "CREATE TASK",
@@ -37,21 +42,22 @@ const INTENT_COLOR: Record<string, string> = {
   QUERY_TASKS: "bg-amber-500/15 text-amber-400 border-amber-500/30",
 };
 
+const PROVIDER_COLOR: Record<string, string> = {
+  groq: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+  openai: "bg-teal-500/15 text-teal-400 border-teal-500/30",
+  "openai-fallback": "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+  "groq-fallback": "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+};
+
 export default function TranscriptDebug({ data, onClose }: Props) {
   const [copied, setCopied] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [showJson, setShowJson] = useState(false);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
-
-  // Close on backdrop click
-  function handleBackdrop(e: React.MouseEvent) {
-    if (e.target === e.currentTarget) onClose();
-  }
 
   async function copyTranscript() {
     await navigator.clipboard.writeText(data.transcript);
@@ -61,29 +67,63 @@ export default function TranscriptDebug({ data, onClose }: Props) {
 
   const intent = data.intent ?? "CREATE_TASK";
   const intentColor = INTENT_COLOR[intent] ?? "bg-zinc-500/15 text-zinc-400 border-zinc-500/30";
+  const provider = data.provider ?? "groq";
+  const providerColor = PROVIDER_COLOR[provider] ?? "bg-zinc-500/15 text-zinc-400 border-zinc-500/30";
+  const txMs = data.timing?.transcription_ms;
+  const exMs = data.timing?.extraction_ms;
+  const totalMs = (txMs ?? 0) + (exMs ?? 0);
+
+  // Strip internal fields from JSON display
+  const { tasks: _t, ...jsonDisplay } = data as any;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
-      onClick={handleBackdrop}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        ref={panelRef}
-        className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-t-2xl p-5 pb-safe-6 max-h-[80dvh] overflow-y-auto"
+        className="w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-t-2xl p-5 pb-8 max-h-[85dvh] overflow-y-auto"
         style={{ animation: "slideUp 0.22s ease-out" }}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-bold tracking-widest text-zinc-500 uppercase">Dev</span>
             <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-full border", intentColor)}>
               {INTENT_LABEL[intent] ?? intent}
             </span>
+            <span className={cn("text-[11px] font-semibold px-2 py-0.5 rounded-full border", providerColor)}>
+              {provider.toUpperCase()}
+            </span>
+            {totalMs > 0 && (
+              <span className="flex items-center gap-1 text-[11px] text-zinc-500 bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full">
+                <Clock className="w-3 h-3" />
+                {(totalMs / 1000).toFixed(1)}s total
+              </span>
+            )}
           </div>
           <button onClick={onClose} className="p-1.5 rounded-full hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition">
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {/* Timing breakdown */}
+        {(txMs || exMs) && (
+          <div className="flex gap-3 mb-4">
+            {txMs && (
+              <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5">
+                <Cpu className="w-3 h-3 text-orange-400" />
+                <span className="text-[11px] text-zinc-400">Whisper <span className="text-zinc-200 font-mono">{txMs}ms</span></span>
+              </div>
+            )}
+            {exMs && (
+              <div className="flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5">
+                <Cpu className="w-3 h-3 text-blue-400" />
+                <span className="text-[11px] text-zinc-400">LLM <span className="text-zinc-200 font-mono">{exMs}ms</span></span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Raw transcript */}
         <div className="mb-4">
@@ -104,6 +144,16 @@ export default function TranscriptDebug({ data, onClose }: Props) {
           </div>
         </div>
 
+        {/* Overall summary */}
+        {data.overall_summary && (
+          <div className="mb-4">
+            <p className="text-[11px] font-semibold tracking-wider text-zinc-500 uppercase mb-1.5">AI Summary</p>
+            <p className="text-sm text-zinc-300 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2">
+              {data.overall_summary}
+            </p>
+          </div>
+        )}
+
         {/* Extracted tasks */}
         {data.tasks && data.tasks.length > 0 && (
           <div className="mb-4">
@@ -115,21 +165,9 @@ export default function TranscriptDebug({ data, onClose }: Props) {
                 <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
                   <p className="text-sm text-zinc-200">{t.title}</p>
                   <div className="flex flex-wrap gap-2 mt-1">
-                    {t.group_name && (
-                      <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
-                        {t.group_name}
-                      </span>
-                    )}
-                    {t.due_date && (
-                      <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
-                        {t.due_date}
-                      </span>
-                    )}
-                    {t.priority && (
-                      <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
-                        {t.priority}
-                      </span>
-                    )}
+                    {t.group_name && <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{t.group_name}</span>}
+                    {t.due_date && <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{new Date(t.due_date).toLocaleString()}</span>}
+                    {t.priority && <span className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{t.priority}</span>}
                   </div>
                 </div>
               ))}
@@ -137,12 +175,25 @@ export default function TranscriptDebug({ data, onClose }: Props) {
           </div>
         )}
 
+        {/* Update/delete target info */}
+        {(data.target_task_keywords?.length || data.target_group || data.update_due || data.update_title) && (
+          <div className="mb-4">
+            <p className="text-[11px] font-semibold tracking-wider text-zinc-500 uppercase mb-1.5">Target</p>
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-[12px] text-zinc-400 space-y-1">
+              {data.target_task_keywords?.length && <p>Keywords: <span className="text-zinc-200">{data.target_task_keywords.join(", ")}</span></p>}
+              {data.target_group && <p>Group: <span className="text-zinc-200">{data.target_group}</span></p>}
+              {data.update_due && <p>New due: <span className="text-zinc-200">{data.update_due}</span></p>}
+              {data.update_title && <p>New title: <span className="text-zinc-200">{data.update_title}</span></p>}
+              {data.update_priority && <p>New priority: <span className="text-zinc-200">{data.update_priority}</span></p>}
+            </div>
+          </div>
+        )}
+
         {/* Duplicates skipped */}
         {!!data.duplicates_skipped && (
           <div className="mb-4">
-            <p className="text-[11px] font-semibold tracking-wider text-zinc-500 uppercase mb-1.5">Duplicates Skipped</p>
             <p className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-              {data.duplicates_skipped} duplicate{data.duplicates_skipped > 1 ? "s" : ""} detected and skipped
+              {data.duplicates_skipped} duplicate{data.duplicates_skipped > 1 ? "s" : ""} skipped
             </p>
           </div>
         )}
@@ -151,22 +202,29 @@ export default function TranscriptDebug({ data, onClose }: Props) {
         {data.answer && (
           <div className="mb-4">
             <p className="text-[11px] font-semibold tracking-wider text-zinc-500 uppercase mb-1.5">AI Answer</p>
-            <p className="text-sm text-zinc-200 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2">
-              {data.answer}
-            </p>
+            <p className="text-sm text-zinc-200 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2">{data.answer}</p>
           </div>
         )}
 
-        {/* Not found */}
         {data.not_found && (
-          <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mb-4">
-            No matching tasks found
-          </p>
+          <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mb-4">No matching tasks found</p>
         )}
 
-        <p className="text-center text-[11px] text-zinc-700 mt-2">
-          Solo visible para ti · Presiona Esc para cerrar
-        </p>
+        {/* Full JSON toggle */}
+        <button
+          onClick={() => setShowJson((v) => !v)}
+          className="flex items-center gap-2 text-[11px] text-zinc-600 hover:text-zinc-400 transition mb-2 w-full"
+        >
+          {showJson ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          {showJson ? "Hide" : "Show"} full JSON response
+        </button>
+        {showJson && (
+          <pre className="text-[11px] text-zinc-400 bg-zinc-900 border border-zinc-800 rounded-xl p-3 overflow-x-auto whitespace-pre-wrap break-all">
+            {JSON.stringify(jsonDisplay, null, 2)}
+          </pre>
+        )}
+
+        <p className="text-center text-[11px] text-zinc-700 mt-4">Solo visible para ti · Esc para cerrar</p>
       </div>
 
       <style>{`

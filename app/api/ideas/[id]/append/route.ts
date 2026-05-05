@@ -32,7 +32,7 @@ export async function POST(
     const audio = form.get("audio");
     if (!(audio instanceof File)) return NextResponse.json({ error: "no audio" }, { status: 400 });
     try {
-      newText = await transcribeAudio(audio);
+      ({ text: newText } = await transcribeAudio(audio));
     } catch (e: any) {
       return NextResponse.json({ error: "Couldn't transcribe audio", detail: e?.message }, { status: 422 });
     }

@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
   let question = "";
   try {
-    question = await transcribeAudio(audio);
+    ({ text: question } = await transcribeAudio(audio));
   } catch (e: any) {
     return NextResponse.json({ error: "Couldn't hear clearly. Try again." }, { status: 422 });
   }

@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { LogOut, Sun, Moon } from "lucide-react";
+import { LogOut, Sun, Moon, BarChart2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDarkMode } from "@/lib/useDarkMode";
 import { useTTS } from "@/lib/useTTS";
@@ -14,6 +14,7 @@ import QuickAdd from "./QuickAdd";
 import SearchBar from "./SearchBar";
 import NicknameModal from "./NicknameModal";
 import TranscriptDebug from "./TranscriptDebug";
+import AdminPanel from "./AdminPanel";
 import type { Task } from "@/lib/types";
 
 const DEV_EMAIL = "yorohn@duck.com";
@@ -61,6 +62,7 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
   const { speak } = useTTS();
   const isDevMode = userEmail === DEV_EMAIL;
   const [debugData, setDebugData] = useState<any>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
 
   // 1-hour warning — client-side scheduler (runs while app is open)
   useEffect(() => {
@@ -270,6 +272,9 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
       {isDevMode && debugData && (
         <TranscriptDebug data={debugData} onClose={() => setDebugData(null)} />
       )}
+      {isDevMode && showAdmin && (
+        <AdminPanel onClose={() => setShowAdmin(false)} />
+      )}
 
       <header className="flex items-center justify-between mb-6">
         <div>
@@ -283,6 +288,15 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
           </p>
         </div>
         <div className="flex items-center gap-1">
+          {isDevMode && (
+            <button
+              onClick={() => setShowAdmin(true)}
+              className="p-2 rounded-full hover:bg-muted transition"
+              aria-label="Admin panel"
+            >
+              <BarChart2 className="w-4 h-4" />
+            </button>
+          )}
           <PushNotificationButton />
           <button
             onClick={toggleDark}

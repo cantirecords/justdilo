@@ -8,7 +8,8 @@ const provider = process.env.AI_PROVIDER || (process.env.GROQ_API_KEY ? "groq" :
 const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 
-export async function transcribeAudio(file: File): Promise<string> {
+export async function transcribeAudio(file: File): Promise<{ text: string; provider: string; ms: number }> {
+  const t0 = Date.now();
   if (provider === "groq" && groq) {
     const r = await groq.audio.transcriptions.create({
       file,
@@ -16,7 +17,7 @@ export async function transcribeAudio(file: File): Promise<string> {
       response_format: "text",
       prompt: "Task list, reminders, calls, meetings, deadlines. May include English, Spanish, or mixed speech.",
     } as any);
-    return typeof r === "string" ? r : (r as any).text ?? "";
+    return { text: typeof r === "string" ? r : (r as any).text ?? "", provider: "groq", ms: Date.now() - t0 };
   }
   if (!openai) throw new Error("No AI provider configured");
   const r = await openai.audio.transcriptions.create({
@@ -24,7 +25,7 @@ export async function transcribeAudio(file: File): Promise<string> {
     model: "whisper-1",
     prompt: "Task list, reminders, calls, meetings, deadlines. May include English, Spanish, or mixed speech.",
   });
-  return r.text;
+  return { text: r.text, provider: "openai", ms: Date.now() - t0 };
 }
 
 const VALID_CATEGORIES = ["personal","business","health","finance","social","home","travel","shopping"] as const;
@@ -213,12 +214,15 @@ async function callOpenAI(messages: { role: "system" | "user"; content: string }
   return r.choices[0]?.message?.content ?? "{}";
 }
 
-export async function extractTasks(transcript: string): Promise<TaskGroups> {
+export type ExtractResult = TaskGroups & { _provider: string; _ms: number };
+
+export async function extractTasks(transcript: string): Promise<ExtractResult> {
   const messages = [
     { role: "system" as const, content: SYSTEM },
     { role: "user" as const, content: transcript },
   ];
 
+  const t0 = Date.now();
   let raw: string;
   let usedProvider = "";
   try {
@@ -249,13 +253,14 @@ export async function extractTasks(transcript: string): Promise<TaskGroups> {
     }
   }
 
-  console.log("[ai] extractTasks via", usedProvider, "raw length:", raw.length);
+  const _ms = Date.now() - t0;
+  console.log("[ai] extractTasks via", usedProvider, "raw length:", raw.length, "ms:", _ms);
   const parsed = TaskGroupSchema.safeParse(safeParseJSON(raw));
   if (!parsed.success) {
     console.error("TaskGroupSchema validation failed:", parsed.error.issues, "raw:", raw.slice(0, 300));
-    return { intent: "CREATE_TASK", overall_summary: "", groups: [], target_task_keywords: [] };
+    return { intent: "CREATE_TASK", overall_summary: "", groups: [], target_task_keywords: [], _provider: usedProvider, _ms };
   }
-  return parsed.data;
+  return { ...parsed.data, _provider: usedProvider, _ms };
 }
 
 const ASSISTANT_SYSTEM = `You are a personal task assistant. Answer the user's question about their tasks in 1-3 short conversational sentences.
