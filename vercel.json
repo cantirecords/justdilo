@@ -8,7 +8,7 @@
     }
   },
   "crons": [
-    { "path": "/api/push/morning", "schedule": "0 12 * * *" },
-    { "path": "/api/push/evening", "schedule": "0 1 * * *" }
+    { "path": "/api/push/morning", "schedule": "0 11 * * *" },
+    { "path": "/api/push/evening", "schedule": "0 0 * * *" }
   ]
 }

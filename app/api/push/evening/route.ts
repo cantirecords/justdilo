@@ -39,8 +39,9 @@ export async function GET() {
   let sent = 0;
 
   for (const [userId, timezone] of userMap) {
-    // Only send when it's 8pm local time for this user
-    if (localHour(timezone) !== 20) continue;
+    // Send between 7–9pm local — wide enough to survive EST/EDT transitions
+    const h = localHour(timezone);
+    if (h < 19 || h > 21) continue;
 
     const name = nicknameMap.get(userId) || null; // "" (skipped) → null
 
