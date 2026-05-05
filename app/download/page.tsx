@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 
 // Update these URLs after uploading your builds to GitHub Releases (or Vercel Blob)
 const RELEASES = {
-  mac: 'https://github.com/cantirecords/justdilo/releases/latest/download/JustDilo-mac.dmg',
-  win: 'https://github.com/cantirecords/justdilo/releases/latest/download/JustDilo-win-Setup.exe',
+  mac: 'https://github.com/cantirecords/justdilo/releases/latest/download/JustDilo-mac-arm64.dmg',
+  macIntel: 'https://github.com/cantirecords/justdilo/releases/latest/download/JustDilo-mac-intel.dmg',
+  win: 'https://github.com/cantirecords/justdilo/releases/latest/download/JustDilo-windows-Setup.exe',
 };
 
 type OS = 'mac' | 'win' | 'other';
