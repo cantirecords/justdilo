@@ -39,17 +39,19 @@ export async function GET() {
 
     const { data: tasks } = await supabase
       .from("tasks")
-      .select("id, title, due_date, priority, group_name")
+      .select("id, title, due_date, priority, group_name, reminder_minutes, reminded_at")
       .eq("user_id", userId)
       .eq("completed", false)
-      .not("due_date", "is", null)
-      .is("reminder_minutes", null);
+      .not("due_date", "is", null);
 
     // Find tasks due within the next ~60 minutes (not at midnight = 23:59)
+    // Skip tasks whose custom reminder already fired (reminded_at set) to avoid double-notifying
     const dueSoon = (tasks ?? []).filter((t) => {
       const due = parseISO(t.due_date);
       const isMidnight = due.getHours() === 23 && due.getMinutes() === 59;
-      return !isMidnight && due >= in55min && due <= in65min;
+      if (isMidnight) return false;
+      if (t.reminder_minutes !== null && t.reminded_at !== null) return false;
+      return due >= in55min && due <= in65min;
     });
 
     for (const task of dueSoon) {
