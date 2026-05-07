@@ -1,16 +1,28 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Mic, Check, ChevronRight } from "lucide-react";
+import { Mic, Check } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
 import { format, isToday, isPast } from "date-fns";
 
 type SlimTask = { id: string; title: string; due_date: string | null; priority: string | null };
 
+function hasTime(d: string) { return d.includes("T"); }
+function isNow(due_date: string | null) {
+  if (!due_date || !hasTime(due_date)) return false;
+  const d = new Date(due_date);
+  return isPast(d) && isToday(d);
+}
+function isOverdueDay(due_date: string | null) {
+  if (!due_date) return false;
+  return isPast(new Date(due_date)) && !isToday(new Date(due_date));
+}
+
 export default function FocusWidget() {
   const [tasks, setTasks] = useState<SlimTask[]>([]);
   const [phase, setPhase] = useState<"idle" | "listening" | "processing">("idle");
   const [completing, setCompleting] = useState(false);
+  const [, setTick] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const sb = createSupabaseBrowser();
@@ -18,11 +30,11 @@ export default function FocusWidget() {
   async function load() {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
-    const today = new Date().toISOString().split("T")[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
     const { data } = await sb.from("tasks")
       .select("id, title, due_date, priority")
       .eq("user_id", user.id).eq("completed", false)
-      .or(`due_date.is.null,due_date.lte.${today}`)
+      .or(`due_date.is.null,due_date.lt.${tomorrow}`)
       .order("due_date", { ascending: true, nullsFirst: false })
       .limit(20);
     setTasks(data ?? []);
@@ -33,12 +45,14 @@ export default function FocusWidget() {
     const ch = sb.channel("focus-rt")
       .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => load())
       .subscribe();
-    return () => { sb.removeChannel(ch); };
+    const interval = setInterval(() => setTick(t => t + 1), 60_000);
+    return () => { sb.removeChannel(ch); clearInterval(interval); };
   }, []);
 
   const topTask = tasks[0] ?? null;
   const remaining = tasks.length - 1;
-  const isOverdue = topTask?.due_date && isPast(new Date(topTask.due_date)) && !isToday(new Date(topTask.due_date));
+  const topNow = topTask ? isNow(topTask.due_date) : false;
+  const topOver = topTask ? isOverdueDay(topTask.due_date) : false;
 
   async function completeTop() {
     if (!topTask) return;
@@ -63,6 +77,7 @@ export default function FocusWidget() {
       const fd = new FormData();
       fd.append("audio", new File(chunksRef.current, `r.${ext}`, { type: mime }));
       fd.append("utcOffset", String(-new Date().getTimezoneOffset()));
+      fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
       try {
         const res = await fetch("/api/process-voice", { method: "POST", body: fd });
         const j = await res.json();
@@ -74,9 +89,22 @@ export default function FocusWidget() {
   }
   function stopRecording() { recorderRef.current?.stop(); recorderRef.current = null; }
 
+  function dueLabel(due_date: string) {
+    if (isOverdueDay(due_date)) return `Overdue · ${format(new Date(due_date), "MMM d")}`;
+    if (isNow(due_date)) return `NOW · ${format(new Date(due_date), "h:mm a")}`;
+    if (isToday(new Date(due_date)) && hasTime(due_date)) return format(new Date(due_date), "h:mm a");
+    if (isToday(new Date(due_date))) return "Today";
+    return format(new Date(due_date), "MMM d");
+  }
+
   return (
     <div className="w-full h-screen flex items-center px-1.5 select-none" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
       <Toaster position="top-center" richColors toastOptions={{ style: { fontSize: 11 } }} />
+
+      <style>{`
+        @keyframes nowPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+        .now-blink { animation: nowPulse 1s ease-in-out infinite; }
+      `}</style>
 
       <div
         className="w-full rounded-[20px] overflow-hidden
@@ -88,7 +116,7 @@ export default function FocusWidget() {
         {/* Header */}
         <div className="flex items-center justify-between px-4 pt-3 pb-1">
           <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-black/25 dark:text-white/25">
-            {isOverdue ? "⚠ Overdue" : "Up next"}
+            {topOver ? "⚠ Overdue" : topNow ? "🔴 Now" : "Up next"}
           </span>
           <div className="flex items-center gap-2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
             {remaining > 0 && (
@@ -111,12 +139,25 @@ export default function FocusWidget() {
         <div className="px-4 py-3">
           {topTask ? (
             <div className={`transition-all duration-300 ${completing ? "opacity-0 -translate-y-2" : "opacity-100"}`}>
-              <p className={`text-[15px] font-[600] leading-snug ${isOverdue ? "text-red-600 dark:text-red-400" : "text-black/85 dark:text-white/85"}`}>
-                {topTask.title}
-              </p>
+              <div className="flex items-start gap-2">
+                {topNow && (
+                  <span className="now-blink mt-1.5 w-2 h-2 rounded-full bg-orange-400 shrink-0" />
+                )}
+                <p className={`text-[15px] font-[600] leading-snug ${
+                  topOver ? "text-red-600 dark:text-red-400" :
+                  topNow  ? "text-orange-500 dark:text-orange-400" :
+                  "text-black/85 dark:text-white/85"
+                }`}>
+                  {topTask.title}
+                </p>
+              </div>
               {topTask.due_date && (
-                <p className={`text-[11px] mt-0.5 ${isOverdue ? "text-red-400" : "text-black/35 dark:text-white/35"}`}>
-                  {isOverdue ? `Due ${format(new Date(topTask.due_date), "MMM d")}` : isToday(new Date(topTask.due_date)) ? "Due today" : format(new Date(topTask.due_date), "MMM d")}
+                <p className={`text-[11px] mt-0.5 font-medium ${
+                  topOver ? "text-red-400" :
+                  topNow  ? "text-orange-400" :
+                  "text-black/35 dark:text-white/35"
+                }`}>
+                  {dueLabel(topTask.due_date)}
                 </p>
               )}
             </div>

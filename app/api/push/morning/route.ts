@@ -39,9 +39,11 @@ export async function GET() {
   let sent = 0;
 
   for (const [userId, timezone] of userMap) {
-    // Send between 6–8am local — wide enough to survive EST/EDT transitions
+    // Cron fires once daily at 13 UTC. That maps to 5am–9am across US zones
+    // (PST/PDT through EST/EDT, both standard and daylight time). Window
+    // widened to 5–10 to absorb DST shifts and edge timezones.
     const h = localHour(timezone);
-    if (h < 6 || h > 8) continue;
+    if (h < 5 || h > 10) continue;
 
     const name = nicknameMap.get(userId) || null; // "" (skipped) → null
 

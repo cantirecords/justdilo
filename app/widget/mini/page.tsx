@@ -17,11 +17,11 @@ export default function MiniWidget() {
   async function load() {
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return;
-    const today = new Date().toISOString().split("T")[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
     const { data } = await sb.from("tasks")
       .select("id, title, due_date")
       .eq("user_id", user.id).eq("completed", false)
-      .or(`due_date.is.null,due_date.lte.${today}`)
+      .or(`due_date.is.null,due_date.lt.${tomorrow}`)
       .order("due_date", { ascending: true, nullsFirst: false })
       .limit(10);
     setTasks(data ?? []);
@@ -54,6 +54,7 @@ export default function MiniWidget() {
       const fd = new FormData();
       fd.append("audio", new File(chunksRef.current, `r.${ext}`, { type: mime }));
       fd.append("utcOffset", String(-new Date().getTimezoneOffset()));
+      fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
       try {
         const res = await fetch("/api/process-voice", { method: "POST", body: fd });
         const j = await res.json();
@@ -66,10 +67,10 @@ export default function MiniWidget() {
 
   function stopRecording() { recorderRef.current?.stop(); recorderRef.current = null; }
 
-  const today = new Date().toISOString().split("T")[0];
-  const overdue = tasks.filter(t => t.due_date && t.due_date < today);
+  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  const overdue = tasks.filter(t => t.due_date && new Date(t.due_date) < todayStart);
   const topTask = overdue[0] ?? tasks[0];
-  const isOverdue = topTask && topTask.due_date && topTask.due_date < today;
+  const isOverdue = topTask?.due_date && new Date(topTask.due_date) < todayStart;
 
   return (
     <div className="w-full h-screen flex items-center select-none px-1.5" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
@@ -120,7 +121,7 @@ export default function MiniWidget() {
         {tasks.length > 0 && phase === "idle" && (
           <div className="px-3 pb-2.5 space-y-0.5">
             {tasks.slice(0, 2).map(t => {
-              const od = t.due_date && t.due_date < today;
+              const od = t.due_date && new Date(t.due_date) < todayStart;
               return (
                 <div key={t.id} className="flex items-center gap-2 group">
                   <button

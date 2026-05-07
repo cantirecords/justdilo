@@ -48,7 +48,7 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
           const res = await fetch("/api/process-text", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: item, utcOffset: -new Date().getTimezoneOffset() }),
+            body: JSON.stringify({ text: item, utcOffset: -new Date().getTimezoneOffset(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
           });
           const json = await res.json();
           if (res.ok && json.tasks?.length) onNewTasks(json.tasks, json.overall_summary ?? "", json.groups?.length ?? 0);
@@ -79,7 +79,7 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
       const res = await fetch("/api/process-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text.trim(), utcOffset: -new Date().getTimezoneOffset() }),
+        body: JSON.stringify({ text: text.trim(), utcOffset: -new Date().getTimezoneOffset(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed");

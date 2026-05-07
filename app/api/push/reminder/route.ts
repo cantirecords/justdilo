@@ -32,7 +32,8 @@ export async function GET() {
   }
 
   let sent = 0;
-  const WINDOW_MS = 2.5 * 60 * 1000;
+  // Cron now runs every 30 min, so widen window to ±15 min to avoid missing reminders.
+  const WINDOW_MS = 15 * 60 * 1000;
 
   for (const task of tasks) {
     const due = parseISO(task.due_date);

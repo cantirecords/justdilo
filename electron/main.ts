@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session, shell, nativeTheme, screen, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, session, shell, nativeTheme, screen, Tray, Menu, nativeImage, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
@@ -14,7 +14,13 @@ function saveMicBounds(bounds: Electron.Rectangle) {
   try { fs.writeFileSync(getMicBoundsFile(), JSON.stringify(bounds)); } catch {}
 }
 function loadMicBounds(): Electron.Rectangle | null {
-  try { return JSON.parse(fs.readFileSync(getMicBoundsFile(), 'utf-8')); } catch { return null; }
+  try {
+    const b = JSON.parse(fs.readFileSync(getMicBoundsFile(), 'utf-8')) as Electron.Rectangle;
+    // Cap to a sane max so a previously-oversized save doesn't fill the screen
+    b.width  = Math.min(Math.max(b.width,  100), 360);
+    b.height = Math.min(Math.max(b.height, 100), 480);
+    return b;
+  } catch { return null; }
 }
 
 const WIDGET_STYLES: Record<string, { label: string; path: string; width: number; height: number; resizable: boolean }> = {
@@ -171,6 +177,19 @@ function createTray() {
   buildTrayMenu();
   tray.on('click', () => showMain());
 }
+
+ipcMain.handle('widget-resize', (event, w: number, h: number) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) {
+    const capped = { w: Math.min(Math.max(w, 100), 480), h: Math.min(Math.max(h, 100), 600) };
+    win.setSize(capped.w, capped.h);
+    if (win === widgetWin && currentStyle === 'mic') saveMicBounds(win.getBounds());
+  }
+});
+
+ipcMain.handle('widget-switch', (_event, style: string) => {
+  if (Object.keys(WIDGET_STYLES).includes(style)) switchWidgetStyle(style as WidgetStyle);
+});
 
 app.whenReady().then(() => {
   setupPermissions();

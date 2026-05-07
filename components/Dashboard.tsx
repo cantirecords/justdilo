@@ -133,10 +133,7 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
     if (duplicatesSkipped > 0) toast.info(`${duplicatesSkipped} duplicate${duplicatesSkipped > 1 ? "s" : ""} skipped`);
     if (recurring.length > 0) recurring.forEach((r) => toast(`↻ Recurring: ${r}`, { duration: 8000 }));
 
-    if (voiceOn && newTasks.length > 0) {
-      speak(buildVoiceReply(newTasks, transcript));
-    }
-  }, [voiceOn, speak]);
+  }, [voiceOn]);
 
   const handleVoiceResult = useCallback((json: any) => {
     if (isDevMode) setDebugData(json);

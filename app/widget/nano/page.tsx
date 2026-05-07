@@ -46,6 +46,7 @@ export default function NanoWidget() {
       const fd = new FormData();
       fd.append("audio", new File(chunksRef.current, `r.${ext}`, { type: mime }));
       fd.append("utcOffset", String(-new Date().getTimezoneOffset()));
+      fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
       try {
         const res = await fetch("/api/process-voice", { method: "POST", body: fd });
         const j = await res.json();
