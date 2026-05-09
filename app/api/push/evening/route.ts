@@ -6,12 +6,6 @@ import { isToday, parseISO } from "date-fns";
 
 export const runtime = "nodejs";
 
-function localHour(timezone: string): number {
-  return parseInt(
-    new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: timezone }).format(new Date()),
-    10,
-  );
-}
 
 export async function GET() {
   const supabase = createSupabaseAdmin();
@@ -38,13 +32,9 @@ export async function GET() {
 
   let sent = 0;
 
-  for (const [userId, timezone] of userMap) {
-    // Cron fires once daily at 02 UTC. That maps to 6pm–10pm across US zones
-    // (PST/PDT through EST/EDT, both standard and daylight time). Window
-    // widened to 18–22 to absorb DST shifts and edge timezones.
-    const h = localHour(timezone);
-    if (h < 18 || h > 22) continue;
-
+  for (const [userId] of userMap) {
+    // No timezone filter — cron fires at 02 UTC which is evening across all
+    // US zones (7pm PDT → 10pm EDT). All subscribed users get the evening push.
     const name = nicknameMap.get(userId) || null; // "" (skipped) → null
 
     const { data: tasks } = await supabase
