@@ -18,7 +18,7 @@ export async function GET() {
 
   const { data: subs } = await supabase
     .from("push_subscriptions").select("user_id, timezone");
-  if (!subs?.length) return NextResponse.json({ sent: 0 });
+  if (!subs?.length) return NextResponse.json({ sent: 0, subs: 0, reason: "no_subscriptions" });
 
   // Dedupe users, keeping the first timezone seen per user
   const userMap = new Map<string, string>();
@@ -69,5 +69,5 @@ export async function GET() {
     sent++;
   }
 
-  return NextResponse.json({ sent });
+  return NextResponse.json({ sent, subs: userMap.size });
 }
