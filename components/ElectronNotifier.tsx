@@ -18,9 +18,10 @@ export default function ElectronNotifier() {
 
       const type = isMorning ? "morning" : "evening";
       try {
-        const res = await fetch(`/api/push/test?type=${type}`);
+        const res = await fetch(`/api/push/content?type=${type}`);
         if (!res.ok) return;
         const { title, body } = await res.json();
+        // content endpoint returns message only — no web push sent, no double notification on mobile
         if (title && body) new Notification(title, { body, icon: "/icons/icon-128.png" });
       } catch {}
     }
