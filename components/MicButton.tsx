@@ -211,9 +211,7 @@ const MicButton = forwardRef<MicButtonHandle, Props>(function MicButton(
         </div>
       )}
 
-      {!offline && !active && (
-        <p className="text-xs text-muted-foreground/50 hidden sm:block">Hold Space to record</p>
-      )}
+      {/* Hint text is rendered by the parent (Dashboard) to avoid duplication */}
     </div>
   );
 });

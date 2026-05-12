@@ -62,7 +62,11 @@
       "Bash(curl -sI \"https://justdilo-app.vercel.app/api/push/morning\")",
       "Bash(curl -s \"https://justdilo-app.vercel.app/api/push/morning\")",
       "Bash(curl -s \"https://justdilo-app.vercel.app/api/push/evening\")",
-      "Bash(curl -s \"https://justdilo-app.vercel.app/api/push/test\")"
+      "Bash(curl -s \"https://justdilo-app.vercel.app/api/push/test\")",
+      "Bash(curl -sv \"https://justdilo-app.vercel.app/api/push/morning\")",
+      "Bash(curl -s \"https://justdilo-app.vercel.app/api/push/subscribe\")",
+      "Bash(curl -s http://localhost:3000)",
+      "Read(//private/tmp/**)"
     ],
     "additionalDirectories": [
       "/Users/cantirecords/Documents/CLAUDE CODE/ANTIGRAVITY/JUSTDILO.APP/public",

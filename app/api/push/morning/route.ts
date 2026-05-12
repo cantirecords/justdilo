@@ -45,13 +45,30 @@ export async function GET() {
 
     const allOpen = tasks ?? [];
 
-    // 1. MORNING BRIEF — tasks due today
+    // 1. MORNING BRIEF — today tasks + overdue context for mood
     const todayTasks = allOpen.filter(
       (t) => t.due_date && isToday(parseISO(t.due_date)),
     );
 
-    if (todayTasks.length > 0) {
-      const msg = await morningBrief(todayTasks, name);
+    const overdueItems = allOpen.filter((t) => {
+      if (!t.due_date) return false;
+      const due = parseISO(t.due_date);
+      return isPast(due) && !isToday(due);
+    });
+
+    const maxOverdueDays = overdueItems.reduce((max, t) => {
+      return Math.max(max, differenceInDays(new Date(), parseISO(t.due_date)));
+    }, 0);
+
+    const overdueContext = {
+      count: overdueItems.length,
+      maxDays: maxOverdueDays,
+      urgentCount: overdueItems.filter((t) => t.priority === "high").length,
+      topTitle: overdueItems[0]?.title ?? null,
+    };
+
+    if (todayTasks.length > 0 || overdueItems.length > 0) {
+      const msg = await morningBrief(todayTasks, overdueContext, name);
       await sendPushToUser(userId, msg);
       sent++;
     }

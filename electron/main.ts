@@ -16,9 +16,29 @@ function saveMicBounds(bounds: Electron.Rectangle) {
 function loadMicBounds(): Electron.Rectangle | null {
   try {
     const b = JSON.parse(fs.readFileSync(getMicBoundsFile(), 'utf-8')) as Electron.Rectangle;
-    // Cap to a sane max so a previously-oversized save doesn't fill the screen
     b.width  = Math.min(Math.max(b.width,  100), 360);
     b.height = Math.min(Math.max(b.height, 100), 480);
+    return b;
+  } catch { return null; }
+}
+
+// Persist main window bounds so the app reopens exactly where you left it
+function getMainBoundsFile() {
+  return path.join(app.getPath('userData'), 'main-window-bounds.json');
+}
+function saveMainBounds(bounds: Electron.Rectangle) {
+  try { fs.writeFileSync(getMainBoundsFile(), JSON.stringify(bounds)); } catch {}
+}
+function loadMainBounds(): Electron.Rectangle | null {
+  try {
+    const b = JSON.parse(fs.readFileSync(getMainBoundsFile(), 'utf-8')) as Electron.Rectangle;
+    // Clamp to sane defaults
+    b.width  = Math.min(Math.max(b.width,  375), 1600);
+    b.height = Math.min(Math.max(b.height, 600), 1200);
+    // Ensure the window is still on-screen (handles monitor changes)
+    const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+    b.x = Math.min(Math.max(b.x, 0), sw - 200);
+    b.y = Math.min(Math.max(b.y, 0), sh - 200);
     return b;
   } catch { return null; }
 }
@@ -50,8 +70,18 @@ function setupPermissions() {
 
 function createWindow() {
   nativeTheme.themeSource = 'dark';
+
+  // Restore last session bounds, or default to a compact portrait layout
+  const saved = loadMainBounds();
+  const defaultW = 460;
+  const defaultH = 820;
+
   mainWin = new BrowserWindow({
-    width: 1280, height: 800, minWidth: 375, minHeight: 600,
+    width:  saved?.width  ?? defaultW,
+    height: saved?.height ?? defaultH,
+    x: saved?.x,
+    y: saved?.y,
+    minWidth: 375, minHeight: 600,
     title: 'JustDilo',
     icon: path.join(__dirname, '../build/icons/icon.png'),
     backgroundColor: '#0a0a0a',
@@ -62,9 +92,16 @@ function createWindow() {
       contextIsolation: true, nodeIntegration: false, sandbox: true,
     },
   });
+
   mainWin.loadURL(BASE_URL);
   mainWin.once('ready-to-show', () => mainWin!.show());
-  mainWin.on('closed', () => { mainWin = null; });
+
+  // Persist position + size whenever the window moves or resizes
+  const saveBounds = () => { if (mainWin && !mainWin.isDestroyed()) saveMainBounds(mainWin.getBounds()); };
+  mainWin.on('moved',   saveBounds);
+  mainWin.on('resized', saveBounds);
+  mainWin.on('closed',  () => { mainWin = null; });
+
   mainWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   mainWin.webContents.on('will-navigate', (event, url) => {
     if (!url.startsWith(APP_URL) && !url.startsWith('http://localhost')) {
@@ -191,7 +228,9 @@ ipcMain.handle('widget-switch', (_event, style: string) => {
   if (Object.keys(WIDGET_STYLES).includes(style)) switchWidgetStyle(style as WidgetStyle);
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Clear HTTP cache so every launch fetches the latest deploy from the server
+  if (!isDev) await session.defaultSession.clearCache();
   setupPermissions();
   createWindow();
   createWidget('mic'); // default to mic widget

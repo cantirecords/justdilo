@@ -15,6 +15,7 @@ import SearchBar from "./SearchBar";
 import NicknameModal from "./NicknameModal";
 import TranscriptDebug from "./TranscriptDebug";
 import AdminPanel from "./AdminPanel";
+import { parseISO, isPast, isToday } from "date-fns";
 import type { Task } from "@/lib/types";
 
 const DEV_EMAIL = "yorohn@duck.com";
@@ -50,7 +51,6 @@ function buildVoiceReply(tasks: Task[], transcript: string): string {
 export default function Dashboard({ initialTasks, userEmail, initialNickname }: { initialTasks: Task[]; userEmail: string; initialNickname: string | null }) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [nickname, setNickname] = useState<string | null>(initialNickname);
-  // null = no nickname yet → show modal; undefined = already checked
   const [showNicknameModal, setShowNicknameModal] = useState(initialNickname === null);
   const [processing, setProcessing] = useState(false);
   const [phase, setPhase] = useState<ProcessPhase>("idle");
@@ -79,7 +79,7 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
       const isMidnight = due.getHours() === 23 && due.getMinutes() === 59;
       if (isMidnight) continue;
       const msUntil1h = due.getTime() - 60 * 60 * 1000 - now;
-      if (msUntil1h < 0 || msUntil1h > 4 * 60 * 60 * 1000) continue; // only schedule if within 4h
+      if (msUntil1h < 0 || msUntil1h > 4 * 60 * 60 * 1000) continue;
       if (notified.has(task.id)) continue;
 
       const t = setTimeout(async () => {
@@ -128,11 +128,26 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
     );
   }, [tasks, search]);
 
+  // Top urgent task — shown persistently above tabs regardless of active tab
+  // Sort by due_date ASC so the most overdue task wins, not the most recently created
+  const urgentTask = useMemo(() => {
+    const now = new Date();
+    const overdue = tasks
+      .filter((t) => !t.completed && t.due_date && parseISO(t.due_date) < now)
+      .sort((a, b) => parseISO(a.due_date!).getTime() - parseISO(b.due_date!).getTime());
+    return overdue[0] ?? tasks.find((t) => !t.completed && t.priority === "high") ?? null;
+  }, [tasks]);
+
+  const isOverdue = (t: Task) => {
+    if (!t.due_date) return false;
+    const d = parseISO(t.due_date);
+    return isPast(d) && !isToday(d);
+  };
+
   const onNewTasks = useCallback((newTasks: Task[], transcript: string, _summary: string, _groupCount: number, duplicatesSkipped = 0, recurring: string[] = []) => {
     setTasks((prev) => [...newTasks, ...prev]);
     if (duplicatesSkipped > 0) toast.info(`${duplicatesSkipped} duplicate${duplicatesSkipped > 1 ? "s" : ""} skipped`);
     if (recurring.length > 0) recurring.forEach((r) => toast(`↻ Recurring: ${r}`, { duration: 8000 }));
-
   }, [voiceOn]);
 
   const handleVoiceResult = useCallback((json: any) => {
@@ -215,7 +230,6 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
         label: "Undo",
         onClick: async () => {
           if (!deleted) return;
-          // Row is gone — recreate it via POST, not PATCH
           const res = await fetch("/api/tasks", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -263,8 +277,15 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
     setShowNicknameModal(false);
   }
 
+  const urgentIsOverdue = urgentTask ? isOverdue(urgentTask) : false;
+
   return (
-    <main className="min-h-dvh max-w-2xl mx-auto px-5 pb-40 pt-safe-6">
+    /*
+     * Layout:
+     * Mobile  — single column: aside (header + mic) stacks above main (search + tasks)
+     * Desktop (xl+) — two columns: aside becomes a 300px left sidebar, main fills the rest
+     */
+    <main className="min-h-dvh xl:grid xl:grid-cols-[300px_1fr] xl:h-screen xl:overflow-hidden">
       {showNicknameModal && <NicknameModal onSave={handleNicknameSave} />}
       {isDevMode && debugData && (
         <TranscriptDebug data={debugData} onClose={() => setDebugData(null)} />
@@ -273,74 +294,131 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
         <AdminPanel onClose={() => setShowAdmin(false)} />
       )}
 
-      <header className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-lg font-semibold tracking-tight">JustDilo</h1>
-          <p className="text-xs text-muted-foreground">
-            {pending > 0
-              ? `${pending} task${pending !== 1 ? "s" : ""} pending`
-              : nickname
-              ? `hey, ${nickname}`
-              : userEmail}
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          {isDevMode && (
+      {/* ── Left sidebar / mobile top section ── */}
+      <aside className="flex flex-col pt-safe-6 px-5 pb-6
+                        xl:h-screen xl:border-r xl:border-border xl:bg-muted/[0.04]
+                        xl:pt-0 xl:px-0 xl:pb-0 xl:overflow-hidden">
+
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-7
+                        xl:px-5 xl:py-4 xl:mb-0
+                        xl:border-b xl:border-border/50 xl:shrink-0">
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">JustDilo</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {pending > 0
+                ? `${pending} task${pending !== 1 ? "s" : ""} pending`
+                : nickname
+                ? `hey, ${nickname}`
+                : userEmail}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            {isDevMode && (
+              <button
+                onClick={() => setShowAdmin(true)}
+                className="p-2 rounded-full hover:bg-muted transition"
+                aria-label="Admin panel"
+              >
+                <BarChart2 className="w-4 h-4" />
+              </button>
+            )}
+            <PushNotificationButton />
             <button
-              onClick={() => setShowAdmin(true)}
+              onClick={toggleDark}
               className="p-2 rounded-full hover:bg-muted transition"
-              aria-label="Admin panel"
+              aria-label="Toggle dark mode"
             >
-              <BarChart2 className="w-4 h-4" />
+              {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
-          )}
-          <PushNotificationButton />
-          <button
-            onClick={toggleDark}
-            className="p-2 rounded-full hover:bg-muted transition"
-            aria-label="Toggle dark mode"
+            <form action="/auth/signout" method="post">
+              <button className="p-2 rounded-full hover:bg-muted" aria-label="Sign out">
+                <LogOut className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* Mic button — centered vertically in sidebar on desktop */}
+        <div className="flex flex-col items-center
+                        xl:flex-1 xl:justify-center xl:py-8">
+          <MicButton
+            ref={micRef}
+            onProcessingChange={setProcessing}
+            onPhaseChange={setPhase}
+            onNewTasks={onNewTasks}
+            onVoiceResult={handleVoiceResult}
+            autoStart={autoStart}
+          />
+          <div className="mt-4 h-5 flex items-center">
+            {phase !== "idle"
+              ? <ProcessingStatus phase={phase} />
+              : <p className="text-sm text-muted-foreground/50">
+                  <span className="sm:hidden">Tap to record</span>
+                  <span className="hidden sm:inline">Hold Space · tap to record</span>
+                </p>
+            }
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Right / main content area ── */}
+      <div className="px-5 pb-40
+                      xl:h-screen xl:flex xl:flex-col xl:overflow-hidden
+                      xl:px-8 xl:pb-0">
+
+        {/* Persistent urgent task card — always visible above tabs */}
+        {urgentTask && (
+          <div
+            className={`mt-5 mb-4 rounded-2xl border-2 p-4 flex items-center gap-3 shrink-0
+              xl:mt-6
+              ${urgentIsOverdue
+                ? "border-red-400/70 dark:border-red-500/60 bg-red-50/40 dark:bg-red-950/20"
+                : "border-orange-400/70 dark:border-orange-500/60 bg-orange-50/40 dark:bg-orange-950/20"}`}
+            style={{ animation: "urgentCardPulse 2.4s ease-in-out infinite" }}
           >
-            {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
-          <form action="/auth/signout" method="post">
-            <button className="p-2 rounded-full hover:bg-muted" aria-label="Sign out">
-              <LogOut className="w-4 h-4" />
+            <div className="flex-1 min-w-0">
+              <p className={`text-[10px] uppercase tracking-widest font-bold mb-0.5
+                ${urgentIsOverdue ? "text-red-500" : "text-orange-500"}`}>
+                {urgentIsOverdue ? "⚠ Overdue" : "⚡ Do this now"}
+              </p>
+              <p className="text-sm font-semibold leading-snug truncate">{urgentTask.title}</p>
+            </div>
+            <button
+              onClick={() => updateTask(urgentTask.id, { completed: true })}
+              className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95
+                ${urgentIsOverdue
+                  ? "bg-red-500 hover:bg-red-600 text-white"
+                  : "bg-orange-500 hover:bg-orange-600 text-white"}`}
+            >
+              Done
             </button>
-          </form>
-        </div>
-      </header>
-
-      <section className="mb-5">
-        <SearchBar value={search} onChange={setSearch} />
-      </section>
-
-      <section className="flex flex-col items-center mb-2">
-        <MicButton
-          ref={micRef}
-          onProcessingChange={setProcessing}
-          onPhaseChange={setPhase}
-          onNewTasks={onNewTasks}
-          onVoiceResult={handleVoiceResult}
-          autoStart={autoStart}
-        />
-        <div className="mt-4 h-5 flex items-center">
-          {phase === "idle"
-            ? <p className="text-sm text-muted-foreground/50">Tap to speak</p>
-            : <ProcessingStatus phase={phase} />
-          }
-        </div>
-      </section>
-
-      <section className="mt-7">
-        {search && filteredTasks.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground py-8">No tasks match "{search}"</p>
-        ) : (
-          <TaskFeed tasks={filteredTasks} onUpdate={updateTask} onDelete={deleteTask} onAddTask={addTaskToGroup} onBatchUpdate={batchUpdateTasks} onBatchDelete={batchDeleteTasks} />
+          </div>
         )}
-      </section>
+
+        {/* Search */}
+        <section className={`mb-5 shrink-0 ${!urgentTask ? "mt-5 xl:mt-6" : ""}`}>
+          <SearchBar value={search} onChange={setSearch} />
+        </section>
+
+        {/* Task feed — scrollable on desktop */}
+        <section className="xl:flex-1 xl:overflow-y-auto xl:pb-8">
+          {search && filteredTasks.length === 0 ? (
+            <p className="text-center text-sm text-muted-foreground py-8">No tasks match "{search}"</p>
+          ) : (
+            <TaskFeed
+              tasks={filteredTasks}
+              onUpdate={updateTask}
+              onDelete={deleteTask}
+              onAddTask={addTaskToGroup}
+              onBatchUpdate={batchUpdateTasks}
+              onBatchDelete={batchDeleteTasks}
+            />
+          )}
+        </section>
+      </div>
 
       <QuickAdd onNewTasks={onQuickAddTasks} onVoiceResult={handleVoiceResult} />
-
       <FloatingWidget />
     </main>
   );

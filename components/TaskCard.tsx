@@ -54,6 +54,12 @@ export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTa
   const recurringTypes = [...new Set(tasks.filter((t) => t.recurring_type).map((t) => t.recurring_type!))];
   const recurringType = recurringTypes.length === 1 ? recurringTypes[0] : recurringTypes.length > 1 ? "custom" : null;
   const RECURRING_LABEL: Record<string, string> = { daily: "Daily", weekly: "Weekly", monthly: "Monthly", custom: "Recurring" };
+  const RECURRING_COLORS: Record<string, string> = {
+    daily: "text-rose-500 dark:text-rose-400",
+    weekly: "text-blue-500 dark:text-blue-400",
+    monthly: "text-emerald-500 dark:text-emerald-400",
+    custom: "text-amber-500 dark:text-amber-400",
+  };
 
   function commitGroupRename() {
     setEditingGroup(false);
@@ -78,13 +84,13 @@ export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTa
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5 flex-wrap">
               {catConfig && (
-                <span className={cn("text-[8px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 uppercase tracking-wider", catConfig.badge)}>
+                <span className={cn("text-[9px] font-semibold flex-shrink-0 uppercase tracking-wider", catConfig.badge)}>
                   {catConfig.icon} {catConfig.label}
                 </span>
               )}
               {recurringType && (
-                <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wide flex-shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200 border border-amber-200 dark:border-amber-500/40">
-                  ↻ {RECURRING_LABEL[recurringType]}
+                <span className={cn("text-[10px] font-bold flex-shrink-0", RECURRING_COLORS[recurringType] ?? "text-amber-500")} title={RECURRING_LABEL[recurringType]}>
+                  ↻
                 </span>
               )}
               {editingGroup ? (
@@ -280,7 +286,12 @@ function Row({ task, onUpdate, onDelete }: { task: Task } & Omit<Props, "tasks" 
             </span>
 
             {task.recurring_type && (
-              <span className="text-[9px] font-bold text-amber-500 dark:text-amber-400 shrink-0" title={task.recurring_type}>
+              <span className={cn("text-[9px] font-bold shrink-0", {
+                "text-rose-500 dark:text-rose-400": task.recurring_type === "daily",
+                "text-blue-500 dark:text-blue-400": task.recurring_type === "weekly",
+                "text-emerald-500 dark:text-emerald-400": task.recurring_type === "monthly",
+                "text-amber-500 dark:text-amber-400": task.recurring_type === "custom",
+              })} title={task.recurring_type}>
                 ↻
               </span>
             )}

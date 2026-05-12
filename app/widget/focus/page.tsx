@@ -104,13 +104,25 @@ export default function FocusWidget() {
       <style>{`
         @keyframes nowPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
         .now-blink { animation: nowPulse 1s ease-in-out infinite; }
+
+        @keyframes overdueGlow {
+          0%,100% { box-shadow: 0 8px 40px rgba(0,0,0,0.16), 0 0 0 0 rgba(239,68,68,0); border-color: rgba(239,68,68,0.35); }
+          50%      { box-shadow: 0 8px 40px rgba(0,0,0,0.22), 0 0 0 5px rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.65); }
+        }
+        @keyframes nowGlow {
+          0%,100% { box-shadow: 0 8px 40px rgba(0,0,0,0.16), 0 0 0 0 rgba(249,115,22,0); border-color: rgba(249,115,22,0.35); }
+          50%      { box-shadow: 0 8px 40px rgba(0,0,0,0.22), 0 0 0 5px rgba(249,115,22,0.14); border-color: rgba(249,115,22,0.65); }
+        }
+        .card-overdue { animation: overdueGlow 2.2s ease-in-out infinite; border: 1.5px solid rgba(239,68,68,0.35); }
+        .card-now     { animation: nowGlow 2.2s ease-in-out infinite; border: 1.5px solid rgba(249,115,22,0.35); }
+        .card-normal  { box-shadow: 0 8px 40px rgba(0,0,0,0.16); border: 1px solid rgba(0,0,0,0.06); }
+        .dark .card-normal { box-shadow: 0 8px 40px rgba(0,0,0,0.6); border-color: rgba(255,255,255,0.07); }
       `}</style>
 
       <div
-        className="w-full rounded-[20px] overflow-hidden
+        className={`w-full rounded-[20px] overflow-hidden
           bg-white/96 dark:bg-[#181818]/96
-          border border-black/[0.06] dark:border-white/[0.07]
-          shadow-[0_8px_40px_rgba(0,0,0,0.16)] dark:shadow-[0_8px_40px_rgba(0,0,0,0.6)]"
+          ${topOver ? "card-overdue" : topNow ? "card-now" : "card-normal"}`}
         style={{ backdropFilter: "blur(24px)", WebkitAppRegion: "drag" } as React.CSSProperties}
       >
         {/* Header */}

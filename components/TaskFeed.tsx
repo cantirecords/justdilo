@@ -463,18 +463,17 @@ const RECURRING_LABEL: Record<string, string> = {
   custom: "Recurring",
 };
 
-function RecurringBadge({ type, compact = false }: { type: string; compact?: boolean }) {
-  const label = RECURRING_LABEL[type] ?? "Recurring";
-  if (compact) {
-    return (
-      <span className="flex items-center gap-0.5 text-[9px] font-bold text-amber-500 dark:text-amber-400 shrink-0">
-        ↻ <span className="hidden">{label}</span>
-      </span>
-    );
-  }
+const RECURRING_COLORS: Record<string, string> = {
+  daily: "text-rose-500 dark:text-rose-400",
+  weekly: "text-blue-500 dark:text-blue-400",
+  monthly: "text-emerald-500 dark:text-emerald-400",
+  custom: "text-amber-500 dark:text-amber-400",
+};
+
+function RecurringBadge({ type }: { type: string }) {
   return (
-    <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wide flex-shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200 border border-amber-200 dark:border-amber-500/40">
-      ↻ {label}
+    <span className={cn("text-[10px] font-bold shrink-0", RECURRING_COLORS[type] ?? "text-amber-500")} title={RECURRING_LABEL[type] ?? "Recurring"}>
+      ↻
     </span>
   );
 }
@@ -568,7 +567,7 @@ function FocusRow({
           {(catConfig || isOverdueActive || isHighPriority || task.recurring_type || dueSoon || !task.due_date) && (
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
               {catConfig && (
-                <span className={cn("text-[8px] px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wider flex-shrink-0", catConfig.badge)}>
+                <span className={cn("text-[9px] font-semibold uppercase tracking-wider flex-shrink-0", catConfig.badge)}>
                   {catConfig.icon} {catConfig.label}
                 </span>
               )}
@@ -771,7 +770,7 @@ function GroupSubRow({
 
             {/* Recurring indicator */}
             {task.recurring_type && (
-              <span className="text-[9px] font-bold text-amber-500 dark:text-amber-400 shrink-0" title={RECURRING_LABEL[task.recurring_type]}>
+              <span className={cn("text-[9px] font-bold shrink-0", RECURRING_COLORS[task.recurring_type] ?? "text-amber-500")} title={RECURRING_LABEL[task.recurring_type]}>
                 ↻
               </span>
             )}
@@ -894,7 +893,7 @@ function FocusGroupCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
             {catConfig && (
-              <span className={cn("text-[8px] px-1.5 py-0.5 rounded-full font-semibold flex-shrink-0 uppercase tracking-wider", catConfig.badge)}>
+              <span className={cn("text-[9px] font-semibold flex-shrink-0 uppercase tracking-wider", catConfig.badge)}>
                 {catConfig.icon} {catConfig.label}
               </span>
             )}
@@ -959,8 +958,29 @@ const SUB_VIEWS: { id: SubView; label: string; icon: React.ElementType }[] = [
   { id: "stats", label: "Stats", icon: BarChart2 },
 ];
 
+const LS_SUBVIEW_KEY = "justdilo:subview";
+
 export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete }: Props) {
-  const [subView, setSubView] = useState<SubView>("focus");
+  const [subView, setSubView] = useState<SubView>(() => {
+    if (typeof window === "undefined") return "focus";
+    return (localStorage.getItem(LS_SUBVIEW_KEY) as SubView | null) ?? "focus";
+  });
+
+  // Deduplicate: within same group+title+due_date, keep only the first instance
+  const dedupedTasks = useMemo(() => {
+    const seen = new Set<string>();
+    return tasks.filter((t) => {
+      const key = `${t.group_name ?? ""}|||${t.title.trim().toLowerCase()}|||${t.due_date ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [tasks]);
+
+  function changeSubView(v: SubView) {
+    setSubView(v);
+    try { localStorage.setItem(LS_SUBVIEW_KEY, v); } catch {}
+  }
 
   return (
     <div>
@@ -969,7 +989,7 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
         {SUB_VIEWS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            onClick={() => setSubView(id)}
+            onClick={() => changeSubView(id)}
             className={cn(
               "flex-1 flex items-center justify-center gap-1 py-1.5 rounded-xl text-[10px] font-medium transition-all duration-150",
               subView === id
@@ -984,12 +1004,12 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
       </div>
 
       {subView === "ideas" && <IdeasFeed />}
-      {subView === "stats" && <StatsCard tasks={tasks} />}
+      {subView === "stats" && <StatsCard tasks={dedupedTasks} />}
 
       {subView === "list" && (
-        tasks.length === 0 ? <SmartEmpty /> : (
+        dedupedTasks.length === 0 ? <SmartEmpty /> : (
           <ListView
-            tasks={tasks}
+            tasks={dedupedTasks}
             onUpdate={onUpdate}
             onDelete={onDelete}
             onAddTask={onAddTask}
@@ -999,7 +1019,7 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
         )
       )}
       {subView === "focus" && (
-        <FocusView tasks={tasks} onUpdate={onUpdate} onDelete={onDelete} />
+        <FocusView tasks={dedupedTasks} onUpdate={onUpdate} onDelete={onDelete} />
       )}
     </div>
   );

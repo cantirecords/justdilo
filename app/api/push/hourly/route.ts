@@ -54,18 +54,40 @@ export async function GET() {
       return due >= in55min && due <= in65min;
     });
 
+    // Group tasks by (group_name + due_date) — one notification per group, not per task
+    const groupMap = new Map<string, { tasks: typeof dueSoon; timeStr: string }>();
     for (const task of dueSoon) {
       const due = parseISO(task.due_date);
-      const timeStr = due.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: timezone });
-      const spanish = detectSpanish([task.title]);
+      const key = task.group_name ? `${task.group_name}|||${task.due_date}` : task.id;
+      if (!groupMap.has(key)) {
+        const timeStr = due.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: timezone });
+        groupMap.set(key, { tasks: [], timeStr });
+      }
+      groupMap.get(key)!.tasks.push(task);
+    }
 
-      await sendPushToUser(userId, {
-        title: spanish ? `En 1 hora ⏰` : `In 1 hour ⏰`,
-        body: spanish
-          ? `${task.title}${task.group_name ? ` · ${task.group_name}` : ""} — ${timeStr}. ¿Listo?`
-          : `${task.title}${task.group_name ? ` · ${task.group_name}` : ""} — ${timeStr}. Ready?`,
-        url: "/",
-      });
+    for (const [, { tasks, timeStr }] of groupMap) {
+      const first = tasks[0];
+      const isSingle = tasks.length === 1;
+      const spanish = detectSpanish(tasks.map((t) => t.title));
+
+      // Task/group name goes in the TITLE — visible at a glance without opening
+      const displayName = isSingle ? first.title : (first.group_name ?? first.title);
+      const truncName = displayName.length > 30 ? displayName.slice(0, 28) + "…" : displayName;
+      const title = `${truncName} ⏰`;
+
+      let body: string;
+      if (isSingle) {
+        body = spanish ? `${timeStr} — dale, en 1 hora.` : `${timeStr} — 1 hour left.`;
+      } else {
+        const extra = tasks.length - 1;
+        const firstShort = first.title.length > 28 ? first.title.slice(0, 26) + "…" : first.title;
+        body = spanish
+          ? `${timeStr} — ${firstShort} +${extra} más.`
+          : `${timeStr} — ${firstShort} +${extra} more.`;
+      }
+
+      await sendPushToUser(userId, { title, body, url: "/" });
       sent++;
     }
   }

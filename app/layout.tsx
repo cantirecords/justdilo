@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import ElectronNotifier from "@/components/ElectronNotifier";
+import SwUpdater from "@/components/SwUpdater";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -79,6 +80,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {children}
         <ElectronNotifier />
+        <SwUpdater />
         <Toaster position="bottom-right" richColors closeButton />
       </body>
     </html>
