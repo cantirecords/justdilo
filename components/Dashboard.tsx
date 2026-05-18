@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { LogOut, Sun, Moon, BarChart2 } from "lucide-react";
+import { LogOut, Sun, Moon, BarChart2, Users, FolderKanban } from "lucide-react";
 import { toast } from "sonner";
 import { useDarkMode } from "@/lib/useDarkMode";
 import { useTTS } from "@/lib/useTTS";
@@ -15,10 +15,59 @@ import SearchBar from "./SearchBar";
 import NicknameModal from "./NicknameModal";
 import TranscriptDebug from "./TranscriptDebug";
 import AdminPanel from "./AdminPanel";
+import OrgPanel from "./OrgPanel";
+import ProjectPanel from "./ProjectPanel";
 import { parseISO, isPast, isToday } from "date-fns";
-import type { Task } from "@/lib/types";
+import type { Task, Organization } from "@/lib/types";
 
 const DEV_EMAIL = "yorohn@duck.com";
+
+// Rotating copy — picked once per page load. Every option nudges toward the mic
+// since voice-first is the core interaction.
+const PENDING_PHRASES = (n: number) => [
+  `${n} to do`,
+  `${n} on your plate`,
+  `${n} up next`,
+  `${n} waiting on you`,
+  `you've got ${n}`,
+  `${n} to handle`,
+  `${n} in the queue`,
+];
+
+const EMPTY_GREETINGS = (name: string) => [
+  `hey, ${name}`,
+  `all clear, ${name}`,
+  `inbox zero, ${name}`,
+  `you're caught up, ${name}`,
+  `nothing pending — talk to me`,
+  `quiet day, ${name}`,
+  `what's next, ${name}?`,
+];
+
+const MIC_MOBILE = [
+  "Tap to talk",
+  "Talk to me",
+  "Say it out loud",
+  "What's on your mind?",
+  "Drop a thought",
+  "Just speak",
+  "Tap & speak",
+  "Tell me anything",
+];
+
+const MIC_DESKTOP = [
+  "Hold Space · or talk to me",
+  "Hold Space · or just speak",
+  "Press Space · or tap to talk",
+  "Hold Space · say it out loud",
+  "Hold Space · what's on your mind?",
+  "Press Space · drop a thought",
+  "Hold Space · tell me anything",
+];
+
+function pickRandom<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
 function isSpanishText(text: string): boolean {
   return /[¿¡áéíóúñüÁÉÍÓÚÑ]|\b(el|la|los|las|un|una|que|de|en|es|por|para|con|hoy|mañana|tareas|urgente|semana)\b/i.test(text);
@@ -48,8 +97,21 @@ function buildVoiceReply(tasks: Task[], transcript: string): string {
   }
 }
 
-export default function Dashboard({ initialTasks, userEmail, initialNickname }: { initialTasks: Task[]; userEmail: string; initialNickname: string | null }) {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+export default function Dashboard({ initialTasks, userEmail, userId, initialNickname, orgsEnabled = false, initialOrgs = [], initialOrgTasks = [] }: { initialTasks: Task[]; userEmail: string; userId: string; initialNickname: string | null; orgsEnabled?: boolean; initialOrgs?: Organization[]; initialOrgTasks?: Task[] }) {
+
+  // Merge personal + org tasks into a single list, deduped by id.
+  // Team tasks live side-by-side with personal tasks in the same views — they just carry an assignee.
+  const [tasks, setTasks] = useState<Task[]>(() => {
+    const seen = new Set<string>();
+    return [...initialTasks, ...initialOrgTasks].filter((t) => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return true;
+    });
+  });
+  const [orgs, setOrgs] = useState<Organization[]>(initialOrgs);
+  const [showOrgPanel, setShowOrgPanel] = useState(false);
+  const [showProjectPanel, setShowProjectPanel] = useState(false);
   const [nickname, setNickname] = useState<string | null>(initialNickname);
   const [showNicknameModal, setShowNicknameModal] = useState(initialNickname === null);
   const [processing, setProcessing] = useState(false);
@@ -58,6 +120,12 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
   const [voiceOn] = useState(() =>
     typeof window !== "undefined" ? localStorage.getItem("justdilo-voice") !== "off" : true
   );
+  // Rotating copy — picked once on mount, stable for the session, fresh on each reload
+  const [micCopy] = useState(() => ({
+    mobile: pickRandom(MIC_MOBILE),
+    desktop: pickRandom(MIC_DESKTOP),
+  }));
+  const [randomSeed] = useState(() => Math.random());
   const [, start] = useTransition();
   const { speak } = useTTS();
   const isDevMode = userEmail === DEV_EMAIL;
@@ -102,20 +170,42 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
   useEffect(() => {
     const supabase = createSupabaseBrowser();
     const channel = supabase
-      .channel("tasks-realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "tasks" }, (payload) => {
+      .channel(`tasks-realtime-${userId}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "tasks", filter: `user_id=eq.${userId}` }, (payload) => {
         const newTask = payload.new as Task;
         setTasks((prev) => prev.some((t) => t.id === newTask.id) ? prev : [newTask, ...prev]);
       })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "tasks" }, (payload) => {
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "tasks", filter: `user_id=eq.${userId}` }, (payload) => {
         setTasks((prev) => prev.map((t) => t.id === payload.new.id ? { ...t, ...payload.new as Task } : t));
       })
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "tasks" }, (payload) => {
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "tasks", filter: `user_id=eq.${userId}` }, (payload) => {
         setTasks((prev) => prev.filter((t) => t.id !== payload.old.id));
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [userId]);
+
+  // Supabase Realtime — sync org tasks across all team members (merged into the same tasks list)
+  useEffect(() => {
+    if (!orgsEnabled || orgs.length === 0) return;
+    const supabase = createSupabaseBrowser();
+    const channels = orgs.map((org) =>
+      supabase
+        .channel(`org-tasks-${org.id}`)
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "tasks", filter: `org_id=eq.${org.id}` }, (payload) => {
+          const t = payload.new as Task;
+          setTasks((prev) => prev.some((x) => x.id === t.id) ? prev : [t, ...prev]);
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "tasks", filter: `org_id=eq.${org.id}` }, (payload) => {
+          setTasks((prev) => prev.map((t) => t.id === payload.new.id ? { ...t, ...payload.new as Task } : t));
+        })
+        .on("postgres_changes", { event: "DELETE", schema: "public", table: "tasks", filter: `org_id=eq.${org.id}` }, (payload) => {
+          setTasks((prev) => prev.filter((t) => t.id !== payload.old.id));
+        })
+        .subscribe()
+    );
+    return () => { channels.forEach((c) => supabase.removeChannel(c)); };
+  }, [orgsEnabled, orgs]);
 
   // Search filter
   const filteredTasks = useMemo(() => {
@@ -293,6 +383,21 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
       {isDevMode && showAdmin && (
         <AdminPanel onClose={() => setShowAdmin(false)} />
       )}
+      {orgsEnabled && showOrgPanel && (
+        <OrgPanel
+          orgs={orgs}
+          userId={userId}
+          onClose={() => setShowOrgPanel(false)}
+          onOrgsChange={setOrgs}
+        />
+      )}
+      {orgsEnabled && showProjectPanel && (
+        <ProjectPanel
+          orgs={orgs}
+          userId={userId}
+          onClose={() => setShowProjectPanel(false)}
+        />
+      )}
 
       {/* ── Left sidebar / mobile top section ── */}
       <aside className="flex flex-col pt-safe-6 px-5 pb-6
@@ -307,9 +412,9 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
             <h1 className="text-lg font-semibold tracking-tight">JustDilo</h1>
             <p className="text-xs text-muted-foreground mt-0.5">
               {pending > 0
-                ? `${pending} task${pending !== 1 ? "s" : ""} pending`
+                ? PENDING_PHRASES(pending)[Math.floor(randomSeed * PENDING_PHRASES(pending).length)]
                 : nickname
-                ? `hey, ${nickname}`
+                ? EMPTY_GREETINGS(nickname)[Math.floor(randomSeed * EMPTY_GREETINGS(nickname).length)]
                 : userEmail}
             </p>
           </div>
@@ -321,6 +426,26 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
                 aria-label="Admin panel"
               >
                 <BarChart2 className="w-4 h-4" />
+              </button>
+            )}
+            {orgsEnabled && (
+              <button
+                onClick={() => setShowOrgPanel(true)}
+                className="p-2 rounded-full hover:bg-muted transition"
+                aria-label="Teams"
+                title="Teams"
+              >
+                <Users className="w-4 h-4" />
+              </button>
+            )}
+            {orgsEnabled && (
+              <button
+                onClick={() => setShowProjectPanel(true)}
+                className="p-2 rounded-full hover:bg-muted transition"
+                aria-label="Projects"
+                title="Projects"
+              >
+                <FolderKanban className="w-4 h-4" />
               </button>
             )}
             <PushNotificationButton />
@@ -354,8 +479,8 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
             {phase !== "idle"
               ? <ProcessingStatus phase={phase} />
               : <p className="text-sm text-muted-foreground/50">
-                  <span className="sm:hidden">Tap to record</span>
-                  <span className="hidden sm:inline">Hold Space · tap to record</span>
+                  <span className="sm:hidden">{micCopy.mobile}</span>
+                  <span className="hidden sm:inline">{micCopy.desktop}</span>
                 </p>
             }
           </div>
@@ -413,6 +538,7 @@ export default function Dashboard({ initialTasks, userEmail, initialNickname }: 
               onAddTask={addTaskToGroup}
               onBatchUpdate={batchUpdateTasks}
               onBatchDelete={batchDeleteTasks}
+              currentUserId={userId}
             />
           )}
         </section>

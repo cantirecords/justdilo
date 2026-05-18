@@ -1,3 +1,68 @@
+export type OrgRole = "owner" | "admin" | "member";
+export type OrgMemberStatus = "pending" | "active";
+
+export type OrgMember = {
+  id: string;
+  org_id: string;
+  user_id: string | null;
+  invited_email: string;
+  role: OrgRole;
+  status: OrgMemberStatus;
+  created_at: string;
+  profile?: { nickname: string | null; email: string } | null;
+};
+
+export type Organization = {
+  id: string;
+  name: string;
+  created_by: string;
+  created_at: string;
+  members?: OrgMember[];
+};
+
+export type ProjectPhase = "planning" | "in_progress" | "review" | "done";
+export type ProjectStatus = "active" | "on_hold" | "done";
+
+export type ProjectMember = {
+  project_id: string;
+  user_id: string;
+  role: "lead" | "member";
+  created_at: string;
+  profile?: { nickname: string | null; email: string } | null;
+};
+
+export type Project = {
+  id: string;
+  org_id: string;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  phase: ProjectPhase;
+  due_date: string | null;
+  created_by: string | null;
+  created_at: string;
+  members?: ProjectMember[];
+  task_count?: number;
+  done_count?: number;
+};
+
+export type TaskAssignee = {
+  user_id: string;
+  profile?: { nickname: string | null; email: string } | null;
+};
+
+export type TaskComment = {
+  id: string;
+  task_id: string;
+  user_id: string | null;
+  body: string | null;
+  link_url: string | null;
+  file_path: string | null;
+  file_name: string | null;
+  created_at: string;
+  profile?: { nickname: string | null; email: string } | null;
+};
+
 export type IdeaSection = { heading: string; points: string[] };
 
 export type IdeaCollaborator = { id: string; email: string; nickname: string | null };
@@ -42,6 +107,7 @@ export type Task = {
   due_date: string | null;
   priority: "low" | "med" | "high" | null;
   completed: boolean;
+  completed_at: string | null;
   created_at: string;
   recurring_type: "daily" | "weekly" | "monthly" | "custom" | null;
   recurring_interval: number | null;
@@ -52,4 +118,9 @@ export type Task = {
   category: TaskCategory | null;
   reminder_minutes: number | null;
   reminded_at: string | null;
+  org_id: string | null;
+  project_id: string | null;
+  assigned_to_id: string | null;
+  assigned_to?: { nickname: string | null; email: string } | null;
+  assignees?: TaskAssignee[] | null;
 };

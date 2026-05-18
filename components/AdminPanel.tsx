@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { X, RefreshCw, Mic, CheckSquare, BarChart2, Users, Brain, Zap, AlertTriangle, TrendingUp, Clock, ChevronDown, ChevronUp, Trash2, Copy, Check } from "lucide-react";
+import { X, RefreshCw, Mic, CheckSquare, BarChart2, Users, Brain, Zap, AlertTriangle, TrendingUp, Clock, ChevronDown, ChevronUp, Trash2, Copy, Check, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -581,13 +581,156 @@ function AnalysisTab({ stats }: { stats: Stats }) {
   );
 }
 
+// ── Flags Tab ─────────────────────────────────────────────────────────────────
+type FeatureFlag = {
+  key: string;
+  description: string | null;
+  rollout: "off" | "admin" | "beta" | "all";
+  updated_at: string;
+};
+type BetaTester = { id: string; email: string; nickname: string | null };
+
+const ROLLOUT_STAGES: { id: FeatureFlag["rollout"]; label: string; color: string }[] = [
+  { id: "off",   label: "Off",   color: "bg-zinc-800 text-zinc-400 border-zinc-700" },
+  { id: "admin", label: "Admin", color: "bg-purple-500/20 text-purple-300 border-purple-500/40" },
+  { id: "beta",  label: "Beta",  color: "bg-amber-500/20 text-amber-300 border-amber-500/40" },
+  { id: "all",   label: "All",   color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" },
+];
+
+function FlagsTab() {
+  const [flags, setFlags] = useState<FeatureFlag[]>([]);
+  const [testers, setTesters] = useState<BetaTester[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newTesterEmail, setNewTesterEmail] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/features");
+      const json = await res.json();
+      setFlags(json.flags ?? []);
+      setTesters(json.betaTesters ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function setRollout(key: string, rollout: FeatureFlag["rollout"]) {
+    setFlags((prev) => prev.map((f) => f.key === key ? { ...f, rollout } : f));
+    await fetch("/api/admin/features", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, rollout }),
+    });
+  }
+
+  async function toggleTester(email: string, enabled: boolean) {
+    setAdding(true);
+    try {
+      const res = await fetch("/api/admin/beta-testers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), enabled }),
+      });
+      if (res.ok) {
+        await load();
+        setNewTesterEmail("");
+      }
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12 text-zinc-600 text-sm">
+        <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Loading flags…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-[11px] font-bold tracking-widest text-zinc-500 uppercase mb-2">Feature flags</p>
+        <div className="space-y-2">
+          {flags.map((f) => (
+            <div key={f.key} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
+              <p className="text-sm font-medium text-zinc-200">{f.key}</p>
+              {f.description && <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{f.description}</p>}
+              <div className="flex gap-1.5 mt-2.5">
+                {ROLLOUT_STAGES.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setRollout(f.key, s.id)}
+                    className={cn(
+                      "flex-1 px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider border transition",
+                      f.rollout === s.id ? s.color : "bg-zinc-900/30 text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700",
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {flags.length === 0 && (
+            <p className="text-[11px] text-zinc-600 italic">No flags registered yet.</p>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <p className="text-[11px] font-bold tracking-widest text-zinc-500 uppercase mb-2">Beta testers</p>
+        <div className="space-y-2">
+          {testers.map((t) => (
+            <div key={t.id} className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2">
+              <span className="text-xs text-zinc-300">{t.email}</span>
+              <button
+                onClick={() => toggleTester(t.email, false)}
+                className="text-[10px] text-zinc-500 hover:text-red-400 transition"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          {testers.length === 0 && (
+            <p className="text-[11px] text-zinc-600 italic">No beta testers yet.</p>
+          )}
+          <div className="flex gap-2 pt-1">
+            <input
+              type="email"
+              value={newTesterEmail}
+              onChange={(e) => setNewTesterEmail(e.target.value)}
+              placeholder="user@email.com"
+              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-zinc-600"
+              onKeyDown={(e) => { if (e.key === "Enter" && newTesterEmail.trim()) toggleTester(newTesterEmail, true); }}
+            />
+            <button
+              onClick={() => newTesterEmail.trim() && toggleTester(newTesterEmail, true)}
+              disabled={!newTesterEmail.trim() || adding}
+              className="px-3 py-1.5 rounded-lg bg-zinc-100 text-zinc-900 text-xs font-medium disabled:opacity-40"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Panel ────────────────────────────────────────────────────────────────
-type Tab = "overview" | "quality" | "users" | "analysis";
+type Tab = "overview" | "quality" | "users" | "analysis" | "flags";
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "overview", label: "Overview", icon: BarChart2 },
   { id: "quality",  label: "AI Quality", icon: Brain },
   { id: "users",    label: "Users", icon: Users },
   { id: "analysis", label: "Analysis", icon: Zap },
+  { id: "flags",    label: "Flags", icon: Flag },
 ];
 
 export default function AdminPanel({ onClose }: { onClose: () => void }) {
@@ -668,6 +811,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
           {stats && tab === "quality"   && <QualityTab q={stats.aiQuality} />}
           {stats && tab === "users"     && <UsersTab b={stats.behavior} />}
           {stats && tab === "analysis"  && <AnalysisTab stats={stats} />}
+          {tab === "flags" && <FlagsTab />}
         </div>
       </div>
 

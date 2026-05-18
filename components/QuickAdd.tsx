@@ -3,7 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, X, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useFeature } from "@/lib/features";
 import type { Task } from "@/lib/types";
+
+type AbandonmentHint = { rate: number; sample: number } | null;
 
 type Props = {
   onNewTasks: (tasks: Task[], summary: string, groupCount: number) => void;
@@ -11,14 +14,30 @@ type Props = {
 };
 
 export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
+  const abandonHintEnabled = useFeature("abandonment_hint");
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [abandonHint, setAbandonHint] = useState<AbandonmentHint>(null);
+  const hintFetchedRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (open) setTimeout(() => textareaRef.current?.focus(), 100);
-  }, [open]);
+    if (open) {
+      setTimeout(() => textareaRef.current?.focus(), 100);
+      if (abandonHintEnabled && !hintFetchedRef.current) {
+        hintFetchedRef.current = true;
+        fetch("/api/insights")
+          .then((r) => r.json())
+          .then(({ abandonment }) => {
+            if (abandonment?.no_due_date_rate >= 50 && abandonment?.no_due_date_sample >= 5) {
+              setAbandonHint({ rate: abandonment.no_due_date_rate, sample: abandonment.no_due_date_sample });
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, [open, abandonHintEnabled]);
 
   // Cmd+K to open
   useEffect(() => {
@@ -150,6 +169,12 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
               rows={4}
               className="w-full rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-foreground/10 resize-none placeholder:text-muted-foreground/50"
             />
+
+            {abandonHintEnabled && abandonHint && (
+              <p className="text-[11px] text-amber-600/70 dark:text-amber-400/60 px-1 mt-2">
+                Heads up: {abandonHint.rate}% of your undated tasks go unfinished — a deadline helps
+              </p>
+            )}
 
             <div className="flex items-center justify-between mt-3">
               <p className="text-xs text-muted-foreground">⌘K to open · Esc to close · ⌘↵ to submit</p>

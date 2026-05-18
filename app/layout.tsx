@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import ElectronNotifier from "@/components/ElectronNotifier";
 import SwUpdater from "@/components/SwUpdater";
+import { FeaturesProvider } from "@/lib/features";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -78,10 +79,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: `(function(){var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}})();` }} />
       </head>
       <body>
-        {children}
-        <ElectronNotifier />
-        <SwUpdater />
-        <Toaster position="bottom-right" richColors closeButton />
+        <FeaturesProvider>
+          {children}
+          <ElectronNotifier />
+          <SwUpdater />
+          <Toaster position="bottom-right" richColors closeButton />
+        </FeaturesProvider>
       </body>
     </html>
   );

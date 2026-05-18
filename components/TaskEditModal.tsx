@@ -7,9 +7,14 @@ import { cn } from "@/lib/utils";
 import { CATEGORY_CONFIG } from "@/lib/categories";
 import type { Task } from "@/lib/types";
 
+type OrgMember = { user_id: string; display: string; nickname: string | null; email: string };
+type ProjectOption = { id: string; name: string };
+
+type TaskPatch = Partial<Task> & { assignee_ids?: string[] };
+
 type Props = {
   task: Task;
-  onSave: (patch: Partial<Task>) => void;
+  onSave: (patch: TaskPatch) => void;
   onClose: () => void;
 };
 
@@ -63,9 +68,34 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
   const [date, setDate] = useState(initDate);
   const [time, setTime] = useState(initTime);
   const [reminderMinutes, setReminderMinutes] = useState<number | null>(task.reminder_minutes ?? null);
+  const [orgMembers, setOrgMembers] = useState<OrgMember[]>([]);
+  const [orgId, setOrgId] = useState<string | null>(task.org_id ?? null);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const [projectId, setProjectId] = useState<string | null>(task.project_id ?? null);
+
+  // Multi-select assignees — initialise from task.assignees or fallback to assigned_to_id
+  const initAssigneeIds = task.assignees?.map((a) => a.user_id).filter(Boolean) as string[]
+    ?? (task.assigned_to_id ? [task.assigned_to_id] : []);
+  const [assignedToIds, setAssignedToIds] = useState<string[]>(initAssigneeIds);
+
+  useEffect(() => {
+    fetch("/api/orgs/members")
+      .then((r) => (r.ok ? r.json() : { members: [], org_id: null }))
+      .then(({ members, org_id }: { members: OrgMember[]; org_id: string | null }) => {
+        setOrgMembers(members);
+        if (!orgId && org_id) setOrgId(org_id);
+      })
+      .catch(() => {});
+    fetch("/api/projects")
+      .then((r) => r.ok ? r.json() : { projects: [] })
+      .then(({ projects: ps }: { projects: ProjectOption[] }) => setProjects(ps))
+      .catch(() => {});
+  }, []);
 
   const saveRef = useRef<() => void>(() => {});
   saveRef.current = () => {
+    const selectedMembers = orgMembers.filter((m) => assignedToIds.includes(m.user_id));
+    const firstMember = selectedMembers[0] ?? null;
     onSave({
       title: title.trim() || task.title,
       group_name: groupName.trim() || null,
@@ -76,7 +106,14 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
       category,
       reminder_minutes: time ? reminderMinutes : null,
       reminded_at: null,
-    });
+      project_id: projectId,
+      assigned_to_id: firstMember?.user_id ?? null,
+      org_id: assignedToIds.length > 0 ? orgId : (task.org_id ?? null),
+      // assignee_ids drives the task_assignees table; assignees hydrates local state immediately
+      assignee_ids: assignedToIds,
+      assignees: selectedMembers.map((m) => ({ user_id: m.user_id, profile: { nickname: m.nickname, email: m.email } })),
+      assigned_to: firstMember ? { nickname: firstMember.nickname, email: firstMember.email } : null,
+    } as any);
     onClose();
   };
 
@@ -194,6 +231,71 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
               ))}
             </div>
           </div>
+
+          {orgMembers.length > 0 && (
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">Assign to</label>
+              <div className="flex gap-2 flex-wrap">
+                {orgMembers.map((m) => (
+                  <button
+                    key={m.user_id}
+                    onClick={() => setAssignedToIds((prev) =>
+                      prev.includes(m.user_id) ? prev.filter((id) => id !== m.user_id) : [...prev, m.user_id]
+                    )}
+                    className={cn(
+                      "py-2 px-3 rounded-xl text-xs font-medium border transition",
+                      assignedToIds.includes(m.user_id)
+                        ? "bg-blue-500 text-white border-blue-500"
+                        : "bg-muted/30 border-border text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {m.display}
+                  </button>
+                ))}
+                {assignedToIds.length > 0 && (
+                  <button
+                    onClick={() => setAssignedToIds([])}
+                    className="py-2 px-3 rounded-xl text-xs font-medium border transition bg-muted/30 border-border text-muted-foreground hover:text-foreground"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {projects.length > 0 && (
+            <div>
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">Project</label>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => setProjectId(null)}
+                  className={cn(
+                    "py-2 px-3 rounded-xl text-xs font-medium border transition",
+                    projectId === null
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-muted/30 border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  None
+                </button>
+                {projects.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setProjectId(p.id)}
+                    className={cn(
+                      "py-2 px-3 rounded-xl text-xs font-medium border transition",
+                      projectId === p.id
+                        ? "bg-foreground text-background border-foreground"
+                        : "bg-muted/30 border-border text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 block">Recurring</label>

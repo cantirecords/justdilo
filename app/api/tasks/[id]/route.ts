@@ -6,7 +6,7 @@ const PATCHABLE = new Set([
   "title", "group_name", "summary", "due_date", "priority", "completed",
   "recurring_type", "recurring_interval", "recurring_day_of_week",
   "recurring_day_of_month", "recurring_next_due", "category",
-  "reminder_minutes", "reminded_at",
+  "reminder_minutes", "reminded_at", "assigned_to_id", "org_id", "project_id",
 ]);
 
 function nextRecurringDue(dueISO: string, type: string): string {
@@ -21,12 +21,29 @@ function nextRecurringDue(dueISO: string, type: string): string {
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const raw = await req.json();
-  const body = Object.fromEntries(Object.entries(raw).filter(([k]) => PATCHABLE.has(k)));
+  // assignee_ids and assignees are handled separately — strip before task update
+  const { assignee_ids, assignees: _assignees, ...rest } = raw as any;
+  const body = Object.fromEntries(Object.entries(rest).filter(([k]) => PATCHABLE.has(k)));
   const supabase = await createSupabaseServer();
+
+  // Handle multi-assignee update (replace all assignees for this task)
+  if (Array.isArray(assignee_ids)) {
+    await supabase.from("task_assignees").delete().eq("task_id", id);
+    if (assignee_ids.length > 0) {
+      await supabase.from("task_assignees").insert(
+        assignee_ids.map((uid: string) => ({ task_id: id, user_id: uid }))
+      );
+    }
+  }
+
+  // If no task fields to update (only assignees changed), return early
+  if (Object.keys(body).length === 0) {
+    return NextResponse.json({ task: null });
+  }
 
   let { data, error } = await supabase.from("tasks").update(body).eq("id", id).select().single();
   if (error?.message?.includes("schema cache")) {
-    const safe = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "category"));
+    const safe = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "category" && k !== "project_id"));
     ({ data, error } = await supabase.from("tasks").update(safe).eq("id", id).select().single());
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

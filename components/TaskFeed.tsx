@@ -15,6 +15,7 @@ import { detectCategory } from "@/lib/detectCategory";
 import TaskCard from "./TaskCard";
 import TaskEditModal from "./TaskEditModal";
 import ProgressRing from "./ProgressRing";
+import SmartInsights from "./SmartInsights";
 import type { Task } from "@/lib/types";
 
 type SubView = "list" | "focus" | "ideas" | "stats";
@@ -27,6 +28,7 @@ type Props = {
   onAddTask?: (title: string, groupName: string) => Promise<void>;
   onBatchUpdate?: (ids: string[], patch: Partial<Task>) => void;
   onBatchDelete?: (ids: string[]) => void;
+  currentUserId?: string;
 };
 
 function hasSpecificTime(due: string): boolean {
@@ -66,7 +68,7 @@ const DEFAULT_COLLAPSED: Record<Bucket | CompletedBucket, boolean> = {
   "Completed Today": true, "Completed This Week": true,
 };
 
-function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete }: Props) {
+function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete, currentUserId }: Props) {
   const [collapsed, setCollapsed] = useState<Record<Bucket | CompletedBucket, boolean>>(() => {
     if (typeof window === "undefined") return DEFAULT_COLLAPSED;
     try {
@@ -160,6 +162,7 @@ function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatch
                   onAddTask={isDone ? undefined : onAddTask}
                   onBatchUpdate={isDone ? undefined : onBatchUpdate}
                   onBatchDelete={isDone ? undefined : onBatchDelete}
+                  currentUserId={currentUserId}
                 />
               </div>
             ))}
@@ -507,7 +510,9 @@ function FocusRow({
   const [editOpen, setEditOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const touchStartX = useRef(0);
+  const pointerStartX = useRef(0);
+  const pointerActive = useRef(false);
+  const pointerMoved = useRef(false);
 
   const hasTimed = task.due_date && hasSpecificTime(task.due_date);
   const dueDate = task.due_date ? parseISO(task.due_date) : null;
@@ -553,15 +558,33 @@ function FocusRow({
 
         {/* Sliding content — bg-background is opaque, hides action strip until swiped */}
         <div
-          className="bg-background px-4 py-3 transition-transform duration-200 ease-out"
+          className="group/row bg-background px-4 py-3 transition-transform duration-200 ease-out"
           style={{ transform: actionsOpen ? "translateX(-88px)" : "translateX(0)" }}
-          onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
-          onTouchEnd={(e) => {
-            const delta = e.changedTouches[0].clientX - touchStartX.current;
-            if (delta < -36) setActionsOpen(true);
-            if (delta > 20) setActionsOpen(false);
+          onPointerDown={(e) => {
+            pointerStartX.current = e.clientX;
+            pointerActive.current = true;
+            pointerMoved.current = false;
           }}
-          onClick={() => { if (actionsOpen) setActionsOpen(false); }}
+          onPointerMove={(e) => {
+            if (!pointerActive.current) return;
+            if (Math.abs(e.clientX - pointerStartX.current) > 6) pointerMoved.current = true;
+          }}
+          onPointerUp={(e) => {
+            if (!pointerActive.current) return;
+            pointerActive.current = false;
+            const delta = e.clientX - pointerStartX.current;
+            if (delta < -36) setActionsOpen(true);
+            else if (delta > 20) setActionsOpen(false);
+          }}
+          onPointerCancel={() => { pointerActive.current = false; }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setActionsOpen((v) => !v);
+          }}
+          onClick={() => {
+            if (pointerMoved.current) { pointerMoved.current = false; return; }
+            if (actionsOpen) setActionsOpen(false);
+          }}
         >
           {/* Category badge + status label row */}
           {(catConfig || isOverdueActive || isHighPriority || task.recurring_type || dueSoon || !task.due_date) && (
@@ -684,7 +707,9 @@ function GroupSubRow({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const touchStartX = useRef(0);
+  const pointerStartX = useRef(0);
+  const pointerActive = useRef(false);
+  const pointerMoved = useRef(false);
 
   const dueDate = task.due_date ? parseISO(task.due_date) : null;
   const hasTimed = task.due_date && hasSpecificTime(task.due_date);
@@ -719,13 +744,31 @@ function GroupSubRow({
         <div
           className="relative bg-background py-0.5 transition-transform duration-200 ease-out"
           style={{ transform: actionsOpen ? "translateX(-88px)" : "translateX(0)" }}
-          onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
-          onTouchEnd={(e) => {
-            const delta = e.changedTouches[0].clientX - touchStartX.current;
-            if (delta < -36) setActionsOpen(true);
-            if (delta > 20) setActionsOpen(false);
+          onPointerDown={(e) => {
+            pointerStartX.current = e.clientX;
+            pointerActive.current = true;
+            pointerMoved.current = false;
           }}
-          onClick={() => { if (actionsOpen) setActionsOpen(false); }}
+          onPointerMove={(e) => {
+            if (!pointerActive.current) return;
+            if (Math.abs(e.clientX - pointerStartX.current) > 6) pointerMoved.current = true;
+          }}
+          onPointerUp={(e) => {
+            if (!pointerActive.current) return;
+            pointerActive.current = false;
+            const delta = e.clientX - pointerStartX.current;
+            if (delta < -36) setActionsOpen(true);
+            else if (delta > 20) setActionsOpen(false);
+          }}
+          onPointerCancel={() => { pointerActive.current = false; }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setActionsOpen((v) => !v);
+          }}
+          onClick={() => {
+            if (pointerMoved.current) { pointerMoved.current = false; return; }
+            if (actionsOpen) setActionsOpen(false);
+          }}
         >
           {/* "next" highlight — painted inside the opaque bg */}
           {isNext && !task.completed && (
@@ -949,6 +992,7 @@ function FocusGroupCard({
   );
 }
 
+
 // ── Main export ──────────────────────────────────────────────────────────────
 
 const SUB_VIEWS: { id: SubView; label: string; icon: React.ElementType }[] = [
@@ -960,10 +1004,13 @@ const SUB_VIEWS: { id: SubView; label: string; icon: React.ElementType }[] = [
 
 const LS_SUBVIEW_KEY = "justdilo:subview";
 
-export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete }: Props) {
+export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete, currentUserId }: Props) {
   const [subView, setSubView] = useState<SubView>(() => {
     if (typeof window === "undefined") return "focus";
-    return (localStorage.getItem(LS_SUBVIEW_KEY) as SubView | null) ?? "focus";
+    const saved = localStorage.getItem(LS_SUBVIEW_KEY) as SubView | null;
+    // Defensive: if a stale "team" value is still in localStorage from older builds, drop it
+    if (!saved || (saved as string) === "team") return "focus";
+    return saved;
   });
 
   // Deduplicate: within same group+title+due_date, keep only the first instance
@@ -1006,6 +1053,8 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
       {subView === "ideas" && <IdeasFeed />}
       {subView === "stats" && <StatsCard tasks={dedupedTasks} />}
 
+      {(subView === "list" || subView === "focus") && <SmartInsights />}
+
       {subView === "list" && (
         dedupedTasks.length === 0 ? <SmartEmpty /> : (
           <ListView
@@ -1015,6 +1064,7 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
             onAddTask={onAddTask}
             onBatchUpdate={onBatchUpdate}
             onBatchDelete={onBatchDelete}
+            currentUserId={currentUserId}
           />
         )
       )}

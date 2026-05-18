@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
-import { Trash2, Clock, ChevronDown, Pencil, Plus, Check, MoreHorizontal } from "lucide-react";
+import { Trash2, Clock, ChevronDown, Pencil, Plus, Check, MoreHorizontal, MessageCircle } from "lucide-react";
 import { format, isToday, isTomorrow, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { CATEGORY_CONFIG } from "@/lib/categories";
@@ -9,17 +9,19 @@ import ProgressRing from "./ProgressRing";
 import CheckButton from "./CheckButton";
 import RescheduleMenu from "./RescheduleMenu";
 import TaskEditModal from "./TaskEditModal";
+import TaskDetailDrawer from "./TaskDetailDrawer";
 import GroupBatchModal from "./GroupBatchModal";
-import type { Task } from "@/lib/types";
+import type { Task, TaskAssignee } from "@/lib/types";
 
 type Props = {
   groupName: string;
   tasks: Task[];
-  onUpdate: (id: string, patch: Partial<Task>) => void;
+  onUpdate: (id: string, patch: Partial<Task> & { assignee_ids?: string[] }) => void;
   onDelete: (id: string) => void;
   onAddTask?: (title: string, groupName: string) => Promise<void>;
   onBatchUpdate?: (ids: string[], patch: Partial<Task>) => void;
   onBatchDelete?: (ids: string[]) => void;
+  currentUserId?: string;
 };
 
 function formatDue(due: string): string {
@@ -31,7 +33,7 @@ function formatDue(due: string): string {
   return format(d, "EEE MMM d") + timeStr;
 }
 
-export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete }: Props) {
+export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete, currentUserId }: Props) {
   const [editingGroup, setEditingGroup] = useState(false);
   const [groupTitle, setGroupTitle] = useState(groupName);
   const [adding, setAdding] = useState(false);
@@ -157,7 +159,7 @@ export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTa
 
         <ul className="space-y-1.5 mt-3">
           {tasks.map((t) => (
-            <Row key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} />
+            <Row key={t.id} task={t} onUpdate={onUpdate} onDelete={onDelete} currentUserId={currentUserId} />
           ))}
         </ul>
 
@@ -217,12 +219,20 @@ export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTa
 
 const SWIPE_REVEAL = 88; // px — 2 action buttons × 44px each
 
-function Row({ task, onUpdate, onDelete }: { task: Task } & Omit<Props, "tasks" | "groupName" | "onAddTask" | "onBatchUpdate" | "onBatchDelete">) {
+function Row({ task, onUpdate, onDelete, currentUserId }: { task: Task } & Omit<Props, "tasks" | "groupName" | "onAddTask" | "onBatchUpdate" | "onBatchDelete">) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const touchStartX = useRef(0);
   const hasNote = Boolean(task.summary?.trim());
+
+  // Resolve assignees: prefer task_assignees array, fall back to legacy assigned_to
+  const assignees: TaskAssignee[] = task.assignees?.length
+    ? task.assignees
+    : task.assigned_to
+    ? [{ user_id: task.assigned_to_id ?? "", profile: task.assigned_to }]
+    : [];
 
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
@@ -285,6 +295,34 @@ function Row({ task, onUpdate, onDelete }: { task: Task } & Omit<Props, "tasks" 
               {task.title}
             </span>
 
+            {task.org_id && assignees.length === 0 && (
+              <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-muted text-muted-foreground/60">
+                @?
+              </span>
+            )}
+            {assignees.slice(0, 2).map((a) => {
+              const name = a.profile?.nickname || a.profile?.email?.split("@")[0] || "?";
+              return (
+                <span key={a.user_id} className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                  @{name}
+                </span>
+              );
+            })}
+            {assignees.length > 2 && (
+              <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-muted text-muted-foreground">
+                +{assignees.length - 2}
+              </span>
+            )}
+            {task.org_id && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setDetailOpen(true); }}
+                className="shrink-0 text-muted-foreground/40 hover:text-foreground transition"
+                aria-label="Comments"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             {task.recurring_type && (
               <span className={cn("text-[9px] font-bold shrink-0", {
                 "text-rose-500 dark:text-rose-400": task.recurring_type === "daily",
@@ -321,6 +359,14 @@ function Row({ task, onUpdate, onDelete }: { task: Task } & Omit<Props, "tasks" 
           task={task}
           onSave={(patch) => onUpdate(task.id, patch)}
           onClose={() => setEditOpen(false)}
+        />
+      )}
+      {detailOpen && (
+        <TaskDetailDrawer
+          task={task}
+          onClose={() => setDetailOpen(false)}
+          onUpdate={onUpdate}
+          currentUserId={currentUserId ?? ""}
         />
       )}
     </>

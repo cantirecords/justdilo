@@ -75,6 +75,8 @@ export const TaskGroupSchema = z.object({
           if (!v) return null;
           return VALID_CATEGORIES.includes(v as TaskCategory) ? (v as TaskCategory) : null;
         }),
+      // Team assignment — names spoken by user (e.g. ["Alice", "Bob"]). Resolved to members on the server.
+      assignee_names: z.array(z.string()).optional().default([]),
     }),
   ).default([]),
 });
@@ -130,7 +132,17 @@ If the user says "comprar comida" → title MUST be "Comprar comida" NOT "Buy fo
 - Return valid JSON only.
 - Group related tasks by person/project/context.
 - Write overall_summary (1-2 sentences) IN THE USER'S LANGUAGE.
-- Keep task titles concise and verb-first. Spanish: "Pagar factura". English: "Send invoice".
+- TITLE QUALITY — MOST IMPORTANT RULE:
+  Titles must be self-contained context for a push notification. A user must understand WHAT the task is about WITHOUT seeing the due date, group, or note. Imagine the title appearing alone on a lockscreen at 5pm.
+  • STRIP temporal words from titles. NEVER write the time/date inside the title — that lives in the "due" field. Forbidden in titles: today, tomorrow, tonight, this week, next week, on Monday, at 5pm, at 5:30, by Friday, in the morning, hoy, mañana, esta noche, esta semana, próxima semana, lunes, a las 5, por la mañana, etc.
+  • BAD: "Tomorrow call Marc at 5:30 about invoice" → GOOD: "Call Marc about the invoice" (due: "tomorrow at 5:30pm")
+  • BAD: "Meeting at 3pm with Sarah" → GOOD: "Meeting with Sarah" (due: "today at 3pm")
+  • BAD: "5:30 dentist" → GOOD: "Dentist appointment" (due: "today at 5:30pm")
+  • BAD: "Tuesday gym" → GOOD: "Go to the gym" (due: "next Tuesday")
+  • Include the SUBJECT or PERSON — never just a verb alone. BAD: "Buy" → GOOD: "Buy groceries for dinner". BAD: "Call" → GOOD: "Call Marc about invoice".
+  • Verb-first when natural. 5-9 words is the sweet spot. Spanish examples: "Pagar factura del proveedor", "Llamar a mamá por su cumpleaños". English examples: "Send invoice to Marc", "Pick up cake for the party".
+  • Subtasks MUST stand alone — they get sent as their own notifications. NEVER write a single-word subtask like "milk" or "wine". Write "Buy milk for breakfast" / "Pick up wine for dinner".
+  • Don't duplicate the group context in every subtask title. If the group is "Mom's birthday", a subtask is "Buy gift", not "Buy gift for Mom's birthday".
 - Group names MUST be timeless. NEVER include relative time words in the name: no hoy, mañana, today, tomorrow, tonight, esta noche, esta semana, this week, next week, próxima semana, lunes, Monday, etc. The "due" field carries all timing. Examples: "Reuniones y tareas de mañana" → name: "Reuniones y tareas". "Tasks for today" → name: "Tasks". "Monday errands" → name: "Errands".
 - Group "due": the main date/time anchor for the group (e.g. "tomorrow at 7pm").
 - Task "due": if a specific subtask has its OWN time, set it on the task. Otherwise null (inherits group).
@@ -148,6 +160,18 @@ If the user says "comprar comida" → title MUST be "Comprar comida" NOT "Buy fo
 
 ━━ CATEGORY DETECTION ━━
 personal, business, health, finance, social, home, travel, shopping. Default: personal.
+
+━━ TEAM ASSIGNMENT (only when a team roster is provided in the user message) ━━
+If a roster is listed (e.g. "TEAM MEMBERS: Alice, Bob"), check whether the user is
+delegating a task to one or more of those names. Triggers like "tell Alice…", "have Bob…",
+"ask Marc to…", "dile a Alicia…", "que Roberto…", "for Alice", "assign to Bob",
+"Alice and Bob handle…", "both Alice and Carmen…".
+- Set the group's "assignee_names" to an array of EXACT roster names (not spoken variants).
+- Single person: assignee_names: ["Alice"]
+- Multiple people: assignee_names: ["Alice", "Bob"]
+- If the user says "team task" / "tarea del equipo" with no specific person, set assignee_names: [].
+- If no team trigger is present, set assignee_names: [] (treated as personal).
+- Only include names that are on the provided roster.
 
 ━━ PER-TASK NOTES ━━
 Each task object must have a "title" and a short "note" (1 sentence, actionable context).
@@ -175,6 +199,7 @@ Return ONLY this exact JSON — no markdown, no explanation:
       "priority": "high" | "med" | "low" | null,
       "recurring": null,
       "category": "business",
+      "assignee_names": [],
       "tasks": [
         {"title": "Task one", "note": "Brief context or null", "due": "tomorrow at 7am"},
         {"title": "Task two", "note": null, "due": null}
@@ -246,10 +271,13 @@ function buildSystemWithCorrections(corrections: Correction[]): string {
   return `${SYSTEM}\n\n━━ LEARNED CORRECTIONS — apply these exact patterns ━━\n${examples}\n━━ END CORRECTIONS ━━`;
 }
 
-export async function extractTasks(transcript: string, corrections: Correction[] = []): Promise<ExtractResult> {
+export async function extractTasks(transcript: string, corrections: Correction[] = [], teamMembers: string[] = []): Promise<ExtractResult> {
+  const userContent = teamMembers.length > 0
+    ? `TEAM MEMBERS: ${teamMembers.join(", ")}\n\nTRANSCRIPT:\n${transcript}`
+    : transcript;
   const messages = [
     { role: "system" as const, content: buildSystemWithCorrections(corrections) },
-    { role: "user" as const, content: transcript },
+    { role: "user" as const, content: userContent },
   ];
 
   const t0 = Date.now();

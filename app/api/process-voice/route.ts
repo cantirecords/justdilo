@@ -102,10 +102,53 @@ export async function POST(req: Request) {
     .single();
   if (captureErr) console.error("[process-voice] captures insert error:", captureErr.message);
 
+  // ── Team roster for voice-driven assignment ─────────────────────────────────
+  // If the user has team membership, fetch the rosters so the AI can detect
+  // "tell Alice to…" style delegation. We use the first active org as the
+  // default org for new team tasks. (Multi-org disambiguation comes later.)
+  type RosterMember = { user_id: string; nickname: string | null; email: string; lookup: string };
+  let activeOrgId: string | null = null;
+  let rosterByName: Map<string, RosterMember> = new Map();
+  {
+    const { data: profile } = await supabase.from("profiles").select("orgs_enabled").eq("id", user.id).single();
+    if (profile?.orgs_enabled) {
+      const { data: myMemberships } = await supabase
+        .from("organization_members")
+        .select("org_id")
+        .eq("user_id", user.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: true })
+        .limit(1);
+      const orgId = myMemberships?.[0]?.org_id ?? null;
+      if (orgId) {
+        activeOrgId = orgId;
+        const { data: members } = await supabase
+          .from("organization_members")
+          .select("user_id, invited_email, profile:profiles!user_id(nickname, email)")
+          .eq("org_id", orgId)
+          .eq("status", "active")
+          .not("user_id", "is", null);
+        for (const m of members ?? []) {
+          const p = (m as any).profile as { nickname: string | null; email: string } | null;
+          const nickname = p?.nickname ?? null;
+          const email = p?.email ?? (m as any).invited_email ?? "";
+          const display = nickname || email.split("@")[0];
+          rosterByName.set(display.toLowerCase(), {
+            user_id: (m as any).user_id,
+            nickname,
+            email,
+            lookup: display,
+          });
+        }
+      }
+    }
+  }
+  const teamMembers = [...rosterByName.values()].map((m) => m.lookup);
+
   const corrections = await getCorrections();
   let result: Awaited<ReturnType<typeof extractTasks>>;
   try {
-    result = await extractTasks(transcript, corrections);
+    result = await extractTasks(transcript, corrections, teamMembers);
   } catch (e) {
     console.error("extract failed", e);
     return NextResponse.json({ error: "AI couldn't process your request. Please try again.", transcript }, { status: 502 });
@@ -206,10 +249,28 @@ export async function POST(req: Request) {
 
   const recurringGroups: string[] = [];
   const duplicateCount = { n: 0 };
+  const memberById = new Map([...rosterByName.values()].map((m) => [m.user_id, m]));
 
-  const rows = groups.flatMap((g) => {
+  // Build rows and track per-row assignee user_ids for task_assignees insert
+  type RowWithMeta = {
+    user_id: string; capture_id: string | null; title: string; group_name: string;
+    summary: string | null; due_date: string | null; priority: string | null;
+    category: string | null; completed: boolean; org_id: string | null;
+    assigned_to_id: string | null; _memberUids: string[];
+  };
+
+  const rowsWithMeta: RowWithMeta[] = groups.flatMap((g) => {
     if (g.recurring) recurringGroups.push(`${g.name}: ${g.recurring}`);
     const resolvedGroupName = normalizeGroupName(g.name ?? "General", existingGroups);
+    // Resolve assignee_names[] → roster members
+    const assigneeNames = (g.assignee_names ?? []) as string[];
+    const assignedMembers = activeOrgId
+      ? assigneeNames.map((n) => rosterByName.get(n.toLowerCase())).filter((m): m is RosterMember => m !== undefined)
+      : [];
+    const orgIdForGroup = assignedMembers.length > 0 ? activeOrgId : null;
+    const assignedToId = assignedMembers[0]?.user_id ?? null;
+    const memberUids = assignedMembers.map((m) => m.user_id);
+
     return g.tasks
       .filter((t) => {
         const title = typeof t === "string" ? t : t.title;
@@ -223,18 +284,17 @@ export async function POST(req: Request) {
         const due_date = resolveDue(taskDue ?? g.due ?? null, utcOffset, timezone)?.toISOString() ?? null;
         const category = g.category ?? detectCategory(resolvedGroupName) ?? detectCategory(title);
         return {
-          user_id: user.id,
-          capture_id: capture?.id ?? null,
-          title,
-          group_name: resolvedGroupName,
-          summary: note || g.summary || null,
-          due_date,
-          priority: g.priority ?? null,
-          category,
-          completed: false,
+          user_id: user.id, capture_id: capture?.id ?? null, title,
+          group_name: resolvedGroupName, summary: note || g.summary || null,
+          due_date, priority: g.priority ?? null, category, completed: false,
+          org_id: orgIdForGroup, assigned_to_id: assignedToId,
+          _memberUids: memberUids,
         };
       });
   });
+
+  // Strip internal meta field before DB insert
+  const rows = rowsWithMeta.map(({ _memberUids: _, ...r }) => r);
 
   let inserted: any[] = [];
   if (rows.length) {
@@ -247,7 +307,26 @@ export async function POST(req: Request) {
       console.error("[process-voice] tasks insert error:", insertErr.message, insertErr.code);
       return NextResponse.json({ error: `DB error: ${insertErr.message}`, transcript }, { status: 500 });
     }
-    inserted = data ?? [];
+
+    // Insert task_assignees rows (many-to-many) and hydrate assignees for immediate UI
+    const assigneeRows: { task_id: string; user_id: string }[] = [];
+    inserted = (data ?? []).map((row: any, i: number) => {
+      const uids = rowsWithMeta[i]?._memberUids ?? [];
+      uids.forEach((uid) => assigneeRows.push({ task_id: row.id, user_id: uid }));
+      const assignees = uids.map((uid) => {
+        const m = memberById.get(uid);
+        return m ? { user_id: uid, profile: { nickname: m.nickname, email: m.email } } : null;
+      }).filter(Boolean);
+      const firstMember = uids[0] ? memberById.get(uids[0]) : null;
+      return {
+        ...row,
+        assignees: assignees.length ? assignees : null,
+        assigned_to: firstMember ? { nickname: firstMember.nickname, email: firstMember.email } : null,
+      };
+    });
+    if (assigneeRows.length) {
+      await supabase.from("task_assignees").insert(assigneeRows);
+    }
   }
 
   const failure_reason = inserted.length === 0 && duplicateCount.n === 0

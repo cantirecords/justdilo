@@ -3,17 +3,33 @@ import { useEffect, useMemo, useState } from "react";
 import { parseISO, isAfter, isBefore, isToday, isPast, startOfWeek, subWeeks, format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { CATEGORY_CONFIG } from "@/lib/categories";
+import { useFeature } from "@/lib/features";
 import type { Idea, Task, TaskCategory } from "@/lib/types";
 
+type PriorityInsight = {
+  priority: string;
+  total: number;
+  completed_cnt: number;
+  completion_pct: number;
+  avg_days: number | null;
+};
+
 export default function StatsCard({ tasks }: { tasks: Task[] }) {
+  const priorityPanelEnabled = useFeature("priority_effectiveness_panel");
   const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [priorityInsights, setPriorityInsights] = useState<PriorityInsight[]>([]);
 
   useEffect(() => {
     fetch("/api/ideas")
       .then((r) => r.json())
       .then(({ ideas }) => setIdeas(ideas ?? []))
       .catch(() => {});
-  }, []);
+    if (!priorityPanelEnabled) return;
+    fetch("/api/insights")
+      .then((r) => r.json())
+      .then(({ priority }) => setPriorityInsights(priority ?? []))
+      .catch(() => {});
+  }, [priorityPanelEnabled]);
 
   const s = useMemo(() => {
     const now = new Date();
@@ -220,6 +236,48 @@ export default function StatsCard({ tasks }: { tasks: Task[] }) {
             {s.lowPending > 0 && <Bar label="⚪ Low" count={s.lowPending} total={s.active} color="bg-slate-400" />}
             {s.recurringCount > 0 && <Bar label="↻ Recurring" count={s.recurringCount} total={s.active} color="bg-amber-500" />}
           </div>
+        </div>
+      )}
+
+      {/* ── Priority effectiveness (server-side completion rates) ── */}
+      {priorityPanelEnabled && priorityInsights.length >= 2 && (
+        <div className="rounded-2xl border border-border bg-muted/20 p-4">
+          <p className="text-xs font-semibold mb-3">Priority effectiveness</p>
+          <div className="space-y-2.5">
+            {priorityInsights.map((p) => {
+              const label = p.priority === "high" ? "🔴 Urgent" : p.priority === "med" ? "🟡 Medium" : "⚪ Low";
+              const color = p.priority === "high" ? "bg-red-500" : p.priority === "med" ? "bg-amber-400" : "bg-slate-400";
+              return (
+                <div key={p.priority} className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-muted-foreground">{label}</span>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {p.completion_pct}% done
+                      {p.avg_days != null && ` · avg ${p.avg_days}d`}
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                    <div
+                      className={cn("h-full rounded-full transition-all duration-500", color)}
+                      style={{ width: `${p.completion_pct}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {(() => {
+            const high = priorityInsights.find((p) => p.priority === "high");
+            const low  = priorityInsights.find((p) => p.priority === "low");
+            if (high && low && low.completion_pct > high.completion_pct + 15) {
+              return (
+                <p className="text-[11px] text-amber-600/80 dark:text-amber-400/70 mt-3">
+                  Low-priority tasks close more reliably than urgent ones — your labels might need a reset
+                </p>
+              );
+            }
+            return null;
+          })()}
         </div>
       )}
 
