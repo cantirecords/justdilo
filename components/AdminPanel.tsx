@@ -585,7 +585,12 @@ function AnalysisTab({ stats }: { stats: Stats }) {
 type FeatureFlag = {
   key: string;
   description: string | null;
+  category: string | null;
+  how_to_use: string | null;
+  impact: string | null;
+  location: string | null;
   rollout: "off" | "admin" | "beta" | "all";
+  created_at: string;
   updated_at: string;
 };
 type BetaTester = { id: string; email: string; nickname: string | null };
@@ -597,12 +602,42 @@ const ROLLOUT_STAGES: { id: FeatureFlag["rollout"]; label: string; color: string
   { id: "all",   label: "All",   color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" },
 ];
 
+const CATEGORY_COLORS: Record<string, string> = {
+  "AI Insights":     "bg-violet-500/15 text-violet-300 border-violet-500/30",
+  "Behavior nudge":  "bg-rose-500/15 text-rose-300 border-rose-500/30",
+  "Analytics":       "bg-sky-500/15 text-sky-300 border-sky-500/30",
+  "Productivity":    "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+  "UX":              "bg-amber-500/15 text-amber-300 border-amber-500/30",
+};
+
+function categoryClass(c: string | null) {
+  if (!c) return "bg-zinc-800/60 text-zinc-400 border-zinc-700";
+  return CATEGORY_COLORS[c] ?? "bg-zinc-800/60 text-zinc-300 border-zinc-700";
+}
+
+function formatDate(iso: string) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch { return iso; }
+}
+
 function FlagsTab() {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [testers, setTesters] = useState<BetaTester[]>([]);
   const [loading, setLoading] = useState(true);
   const [newTesterEmail, setNewTesterEmail] = useState("");
   const [adding, setAdding] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<"all" | FeatureFlag["rollout"]>("all");
+
+  function toggleExpand(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
 
   async function load() {
     setLoading(true);
@@ -652,33 +687,142 @@ function FlagsTab() {
     );
   }
 
+  const counts = {
+    all:   flags.length,
+    off:   flags.filter((f) => f.rollout === "off").length,
+    admin: flags.filter((f) => f.rollout === "admin").length,
+    beta:  flags.filter((f) => f.rollout === "beta").length,
+    rolled: flags.filter((f) => f.rollout === "all").length,
+  };
+  const visibleFlags = filter === "all" ? flags : flags.filter((f) => f.rollout === filter);
+
   return (
     <div className="space-y-5">
+      {/* Summary strip */}
+      <div className="grid grid-cols-4 gap-2">
+        <button
+          onClick={() => setFilter("all")}
+          className={cn("rounded-lg border px-2 py-2 text-left transition",
+            filter === "all" ? "border-zinc-500 bg-zinc-800/40" : "border-zinc-800 bg-zinc-900/30 hover:border-zinc-700")}>
+          <p className="text-[9px] text-zinc-500 uppercase tracking-wider">Total</p>
+          <p className="text-lg font-bold text-zinc-100 leading-tight">{counts.all}</p>
+        </button>
+        <button
+          onClick={() => setFilter("admin")}
+          className={cn("rounded-lg border px-2 py-2 text-left transition",
+            filter === "admin" ? "border-purple-500/60 bg-purple-500/15" : "border-zinc-800 bg-zinc-900/30 hover:border-zinc-700")}>
+          <p className="text-[9px] text-purple-400 uppercase tracking-wider">Admin</p>
+          <p className="text-lg font-bold text-zinc-100 leading-tight">{counts.admin}</p>
+        </button>
+        <button
+          onClick={() => setFilter("beta")}
+          className={cn("rounded-lg border px-2 py-2 text-left transition",
+            filter === "beta" ? "border-amber-500/60 bg-amber-500/15" : "border-zinc-800 bg-zinc-900/30 hover:border-zinc-700")}>
+          <p className="text-[9px] text-amber-400 uppercase tracking-wider">Beta</p>
+          <p className="text-lg font-bold text-zinc-100 leading-tight">{counts.beta}</p>
+        </button>
+        <button
+          onClick={() => setFilter("all")}
+          className={cn("rounded-lg border px-2 py-2 text-left transition",
+            filter === "all" ? "border-zinc-700 bg-zinc-900/30" : "border-zinc-800 bg-zinc-900/30 hover:border-zinc-700")}>
+          <p className="text-[9px] text-emerald-400 uppercase tracking-wider">Live</p>
+          <p className="text-lg font-bold text-zinc-100 leading-tight">{counts.rolled}</p>
+        </button>
+      </div>
+
       <div>
-        <p className="text-[11px] font-bold tracking-widest text-zinc-500 uppercase mb-2">Feature flags</p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-[11px] font-bold tracking-widest text-zinc-500 uppercase">Feature flags</p>
+          {filter !== "all" && (
+            <button onClick={() => setFilter("all")} className="text-[10px] text-zinc-500 hover:text-zinc-300">
+              Clear filter
+            </button>
+          )}
+        </div>
         <div className="space-y-2">
-          {flags.map((f) => (
-            <div key={f.key} className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3">
-              <p className="text-sm font-medium text-zinc-200">{f.key}</p>
-              {f.description && <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{f.description}</p>}
-              <div className="flex gap-1.5 mt-2.5">
-                {ROLLOUT_STAGES.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setRollout(f.key, s.id)}
-                    className={cn(
-                      "flex-1 px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider border transition",
-                      f.rollout === s.id ? s.color : "bg-zinc-900/30 text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700",
+          {visibleFlags.map((f) => {
+            const isOpen = expanded.has(f.key);
+            return (
+              <div key={f.key} className="rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+                {/* Header row — always visible */}
+                <button
+                  onClick={() => toggleExpand(f.key)}
+                  className="w-full text-left p-3 hover:bg-zinc-900/60 transition"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-zinc-100">{f.key}</p>
+                        {f.category && (
+                          <span className={cn("text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border font-semibold",
+                            categoryClass(f.category))}>
+                            {f.category}
+                          </span>
+                        )}
+                      </div>
+                      {f.description && (
+                        <p className="text-[11px] text-zinc-500 mt-1 leading-snug">{f.description}</p>
+                      )}
+                      <div className="flex items-center gap-2 mt-2 text-[10px] text-zinc-600">
+                        <span>Added {formatDate(f.created_at)}</span>
+                        {f.updated_at && f.updated_at !== f.created_at && (
+                          <>
+                            <span>·</span>
+                            <span>Updated {formatDate(f.updated_at)}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {isOpen ? <ChevronUp className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" /> : <ChevronDown className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />}
+                  </div>
+                </button>
+
+                {/* Expanded detail */}
+                {isOpen && (
+                  <div className="px-3 pb-3 space-y-3 border-t border-zinc-800/60 pt-3">
+                    {f.how_to_use && (
+                      <div>
+                        <p className="text-[9px] font-bold tracking-widest text-zinc-500 uppercase mb-1">How to use</p>
+                        <p className="text-[11px] text-zinc-300 leading-relaxed">{f.how_to_use}</p>
+                      </div>
                     )}
-                  >
-                    {s.label}
-                  </button>
-                ))}
+                    {f.impact && (
+                      <div>
+                        <p className="text-[9px] font-bold tracking-widest text-zinc-500 uppercase mb-1">Why it matters</p>
+                        <p className="text-[11px] text-zinc-300 leading-relaxed">{f.impact}</p>
+                      </div>
+                    )}
+                    {f.location && (
+                      <div>
+                        <p className="text-[9px] font-bold tracking-widest text-zinc-500 uppercase mb-1">Where it shows</p>
+                        <p className="text-[11px] text-zinc-400 font-mono">{f.location}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Rollout controls — always visible */}
+                <div className="flex gap-1.5 px-3 pb-3">
+                  {ROLLOUT_STAGES.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={(e) => { e.stopPropagation(); setRollout(f.key, s.id); }}
+                      className={cn(
+                        "flex-1 px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider border transition",
+                        f.rollout === s.id ? s.color : "bg-zinc-900/30 text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700",
+                      )}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-          {flags.length === 0 && (
-            <p className="text-[11px] text-zinc-600 italic">No flags registered yet.</p>
+            );
+          })}
+          {visibleFlags.length === 0 && (
+            <p className="text-[11px] text-zinc-600 italic">
+              {flags.length === 0 ? "No flags registered yet." : "No flags match this filter."}
+            </p>
           )}
         </div>
       </div>
