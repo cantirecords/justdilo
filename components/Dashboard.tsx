@@ -16,6 +16,7 @@ import WelcomeCard from "./WelcomeCard";
 import MicPrimer from "./MicPrimer";
 import PushPrimer from "./PushPrimer";
 import InstallPrimer from "./InstallPrimer";
+import MeetingCard from "./MeetingCard";
 import SearchBar from "./SearchBar";
 import NicknameModal from "./NicknameModal";
 import TranscriptDebug from "./TranscriptDebug";
@@ -485,6 +486,17 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
             <WelcomeCard taskCount={tasks.length} nickname={nickname} />
             <PushPrimer taskCount={tasks.length} />
             <InstallPrimer />
+            <MeetingCard
+              userId={userId}
+              orgs={orgs}
+              onTasksCreated={(newTasks) => {
+                if (!newTasks.length) return;
+                setTasks((prev) => {
+                  const seen = new Set(prev.map((t) => t.id));
+                  return [...newTasks.filter((t) => !seen.has(t.id)), ...prev];
+                });
+              }}
+            />
           </div>
           <MicButton
             ref={micRef}

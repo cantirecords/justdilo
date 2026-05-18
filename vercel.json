@@ -5,6 +5,9 @@
   "functions": {
     "app/api/process-voice/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/meetings/finish/route.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [

@@ -97,6 +97,34 @@ export type TaskCategory =
   | "travel"
   | "shopping";
 
+export type MeetingActionItem = {
+  title: string;
+  note: string | null;
+  assignee_name: string | null;
+  due: string | null;
+  priority: "low" | "med" | "high" | null;
+};
+
+export type MeetingStatus = "processing" | "done" | "failed";
+
+export type Meeting = {
+  id: string;
+  user_id: string;
+  org_id: string | null;
+  project_id: string | null;
+  title: string;
+  transcript: string | null;
+  summary: string | null;
+  decisions: string[];
+  action_items: MeetingActionItem[];
+  duration_seconds: number | null;
+  language: string | null;
+  status: MeetingStatus;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
 export type Task = {
   id: string;
   user_id: string;
@@ -120,6 +148,7 @@ export type Task = {
   reminded_at: string | null;
   org_id: string | null;
   project_id: string | null;
+  meeting_id?: string | null;
   assigned_to_id: string | null;
   assigned_to?: { nickname: string | null; email: string } | null;
   assignees?: TaskAssignee[] | null;
