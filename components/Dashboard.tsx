@@ -146,6 +146,19 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
   const [debugData, setDebugData] = useState<any>(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showMeetingOverlay, setShowMeetingOverlay] = useState(false);
+  const [continueMeeting, setContinueMeeting] = useState<import("@/lib/types").Meeting | null>(null);
+
+  // Listen for "Continue meeting" requests fired from MeetingsView
+  useEffect(() => {
+    function onContinue(e: Event) {
+      const meeting = (e as CustomEvent<{ meeting: import("@/lib/types").Meeting }>).detail?.meeting;
+      if (!meeting) return;
+      setContinueMeeting(meeting);
+      setShowMeetingOverlay(true);
+    }
+    window.addEventListener("justdilo:continue-meeting", onContinue);
+    return () => window.removeEventListener("justdilo:continue-meeting", onContinue);
+  }, []);
 
   // 1-hour warning — client-side scheduler (runs while app is open)
   useEffect(() => {
@@ -575,7 +588,8 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
         <MeetingOverlay
           userId={userId}
           orgs={orgs}
-          onClose={() => setShowMeetingOverlay(false)}
+          parentMeeting={continueMeeting}
+          onClose={() => { setShowMeetingOverlay(false); setContinueMeeting(null); }}
           onTasksCreated={(newTasks) => {
             if (!newTasks.length) return;
             setTasks((prev) => {

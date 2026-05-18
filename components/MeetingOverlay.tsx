@@ -21,9 +21,10 @@ type Props = {
   orgs: Organization[];
   onClose: () => void;
   onTasksCreated: (tasks: Task[]) => void;
+  parentMeeting?: Meeting | null;
 };
 
-export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated }: Props) {
+export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated, parentMeeting }: Props) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
@@ -121,6 +122,7 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated }
           project_id: null,
           utcOffset: -new Date().getTimezoneOffset(),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          parent_meeting_id: parentMeeting?.id ?? null,
         }),
       });
       const json = await res.json();
@@ -173,6 +175,11 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated }
           {/* Idle */}
           {phase === "idle" && (
             <div className="space-y-4">
+              {parentMeeting && (
+                <div className="rounded-xl bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground leading-snug">
+                  Continuing <strong className="text-foreground/80">{parentMeeting.title}</strong> — new action items will be added to this meeting.
+                </div>
+              )}
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Tap <strong>Start</strong> when your meeting begins. Keep this screen open — or leave the tab in the foreground. Tap <strong>End</strong> when you&apos;re done.
               </p>
@@ -183,7 +190,7 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated }
                 onClick={startRecording}
                 className="w-full py-3 rounded-2xl bg-foreground text-background font-semibold text-sm hover:opacity-90 transition active:scale-[0.98]"
               >
-                Start meeting
+                {parentMeeting ? "Continue recording" : "Start meeting"}
               </button>
             </div>
           )}

@@ -33,6 +33,11 @@ export default function MeetingsView() {
     setMeetings((prev) => prev.filter((m) => m.id !== id));
   }
 
+  function handleContinue(meeting: Meeting) {
+    setSelected(null);
+    window.dispatchEvent(new CustomEvent("justdilo:continue-meeting", { detail: { meeting } }));
+  }
+
   if (loading) {
     return (
       <div className="py-12 text-center">
@@ -137,6 +142,7 @@ export default function MeetingsView() {
           meeting={selected}
           onClose={() => setSelected(null)}
           onDelete={handleDelete}
+          onContinue={handleContinue}
         />
       )}
     </>

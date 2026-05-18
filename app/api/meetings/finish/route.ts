@@ -14,6 +14,7 @@ type FinishBody = {
   project_id?: string | null;
   utcOffset?: number;
   timezone?: string;
+  parent_meeting_id?: string | null;
 };
 
 export async function POST(req: Request) {
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
 
   let body: FinishBody;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "invalid body" }, { status: 400 }); }
-  const { path, duration_seconds, org_id, project_id } = body;
+  const { path, duration_seconds, org_id, project_id, parent_meeting_id } = body;
   const utcOffset = Number(body.utcOffset ?? 0);
   const timezone = body.timezone;
   if (!path || typeof path !== "string") {
@@ -34,21 +35,42 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "path not owned by user" }, { status: 403 });
   }
 
-  // ── Create the meeting row up-front in "processing" state ─────────────────
-  const { data: meeting, error: meetingErr } = await supabase
-    .from("meetings")
-    .insert({
-      user_id: user.id,
-      org_id: org_id ?? null,
-      project_id: project_id ?? null,
-      duration_seconds: duration_seconds ?? null,
-      status: "processing",
-    })
-    .select()
-    .single();
-  if (meetingErr || !meeting) {
-    console.error("[meetings/finish] insert error:", meetingErr?.message);
-    return NextResponse.json({ error: "Couldn't start meeting record" }, { status: 500 });
+  // ── Load parent meeting if this is a continuation ─────────────────────────
+  let parentMeeting: any = null;
+  if (parent_meeting_id) {
+    const { data: pm } = await supabase
+      .from("meetings")
+      .select()
+      .eq("id", parent_meeting_id)
+      .eq("user_id", user.id)
+      .single();
+    if (!pm) return NextResponse.json({ error: "Parent meeting not found" }, { status: 404 });
+    parentMeeting = pm;
+  }
+
+  // ── Create or reuse the meeting row ───────────────────────────────────────
+  let meeting: any;
+  if (!parentMeeting) {
+    const { data: m, error: meetingErr } = await supabase
+      .from("meetings")
+      .insert({
+        user_id: user.id,
+        org_id: org_id ?? null,
+        project_id: project_id ?? null,
+        duration_seconds: duration_seconds ?? null,
+        status: "processing",
+      })
+      .select()
+      .single();
+    if (meetingErr || !m) {
+      console.error("[meetings/finish] insert error:", meetingErr?.message);
+      return NextResponse.json({ error: "Couldn't start meeting record" }, { status: 500 });
+    }
+    meeting = m;
+  } else {
+    // Mark parent as processing for the continuation
+    await supabase.from("meetings").update({ status: "processing" }).eq("id", parentMeeting.id);
+    meeting = parentMeeting;
   }
 
   // Best-effort blob cleanup — runs in both success and failure paths.
@@ -113,15 +135,20 @@ export async function POST(req: Request) {
   const teamMembers = [...rosterByName.values()].map((m) => m.lookup);
 
   // ── Summarize + extract action items ──────────────────────────────────────
+  // For continuations, summarize only the new portion to extract fresh action
+  // items and decisions, then merge with the parent's existing data.
+  const transcriptForSummary = transcript;
   let summary: Awaited<ReturnType<typeof summarizeMeeting>>;
   try {
-    summary = await summarizeMeeting(transcript, teamMembers);
+    summary = await summarizeMeeting(transcriptForSummary, teamMembers);
   } catch (e: any) {
     console.error("[meetings/finish] summarize failed:", e?.message);
-    // Save the transcript at least — the audio is still going away.
+    const combinedTranscript = parentMeeting
+      ? `${parentMeeting.transcript}\n\n---\n\n[Session 2]\n${transcript}`
+      : transcript;
     await supabase.from("meetings").update({
       status: "failed",
-      transcript,
+      transcript: parentMeeting ? combinedTranscript : transcript,
       error: `Summary failed: ${e?.message ?? "unknown"}`,
     }).eq("id", meeting.id);
     await deleteBlob();
@@ -145,7 +172,7 @@ export async function POST(req: Request) {
     _memberUids: string[];
   };
 
-  const groupName = summary.title || "Meeting";
+  const groupName = parentMeeting?.title || summary.title || "Meeting";
   const rowsWithMeta: TaskRow[] = summary.action_items.map((item) => {
     const assigneeKey = item.assignee_name?.toLowerCase();
     const member = assigneeKey ? rosterByName.get(assigneeKey) : undefined;
@@ -191,15 +218,33 @@ export async function POST(req: Request) {
   }
 
   // ── Finalize the meeting row ──────────────────────────────────────────────
+  // For continuations: append transcript, merge decisions + action items,
+  // sum duration. Keep the original title (user already named the meeting).
+  const finalTranscript = parentMeeting
+    ? `${parentMeeting.transcript ?? ""}\n\n---\n\n[Session 2]\n${transcript}`.trim()
+    : transcript;
+  const finalDecisions = parentMeeting
+    ? [...(parentMeeting.decisions ?? []), ...summary.decisions]
+    : summary.decisions;
+  const finalActionItems = parentMeeting
+    ? [...(parentMeeting.action_items ?? []), ...summary.action_items]
+    : summary.action_items;
+  const finalDuration = parentMeeting && parentMeeting.duration_seconds != null
+    ? (parentMeeting.duration_seconds ?? 0) + (duration_seconds ?? 0)
+    : duration_seconds ?? null;
+
   const { data: finalized } = await supabase
     .from("meetings")
     .update({
-      title: summary.title,
-      transcript,
-      summary: summary.summary,
-      decisions: summary.decisions,
-      action_items: summary.action_items,
+      ...(parentMeeting ? {} : { title: summary.title }),
+      transcript: finalTranscript,
+      summary: parentMeeting
+        ? `${parentMeeting.summary ?? ""}\n\nFollow-up: ${summary.summary}`.trim()
+        : summary.summary,
+      decisions: finalDecisions,
+      action_items: finalActionItems,
       language: summary.language,
+      duration_seconds: finalDuration,
       status: "done",
       completed_at: new Date().toISOString(),
     })
