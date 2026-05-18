@@ -714,11 +714,11 @@ type FeatureFlag = {
 };
 type BetaTester = { id: string; email: string; nickname: string | null };
 
-const ROLLOUT_STAGES: { id: FeatureFlag["rollout"]; label: string; color: string }[] = [
-  { id: "off",   label: "Off",   color: "bg-zinc-800 text-zinc-400 border-zinc-700" },
-  { id: "admin", label: "Admin", color: "bg-purple-500/20 text-purple-300 border-purple-500/40" },
-  { id: "beta",  label: "Beta",  color: "bg-amber-500/20 text-amber-300 border-amber-500/40" },
-  { id: "all",   label: "All",   color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" },
+const ROLLOUT_STAGES: { id: FeatureFlag["rollout"]; label: string; hint: string; color: string }[] = [
+  { id: "off",   label: "Off",   hint: "nobody",        color: "bg-zinc-800 text-zinc-400 border-zinc-700" },
+  { id: "admin", label: "Admin", hint: "just you",      color: "bg-purple-500/20 text-purple-300 border-purple-500/40" },
+  { id: "beta",  label: "Beta",  hint: "you + testers", color: "bg-amber-500/20 text-amber-300 border-amber-500/40" },
+  { id: "all",   label: "All",   hint: "everyone",      color: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40" },
 ];
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -856,7 +856,7 @@ function FlagsTab() {
       </div>
 
       <div>
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-1">
           <p className="text-[11px] font-bold tracking-widest text-zinc-500 uppercase">Feature flags</p>
           {filter !== "all" && (
             <button onClick={() => setFilter("all")} className="text-[10px] text-zinc-500 hover:text-zinc-300">
@@ -864,6 +864,9 @@ function FlagsTab() {
             </button>
           )}
         </div>
+        <p className="text-[10px] text-zinc-600 mb-3 leading-snug">
+          You (admin) always see features set to Admin, Beta, or All. Setting to <strong className="text-zinc-500">Off</strong> hides it from everyone including you. Click any level to promote or demote.
+        </p>
         <div className="space-y-2">
           {visibleFlags.map((f) => {
             const isOpen = expanded.has(f.key);
@@ -933,11 +936,14 @@ function FlagsTab() {
                       key={s.id}
                       onClick={(e) => { e.stopPropagation(); setRollout(f.key, s.id); }}
                       className={cn(
-                        "flex-1 px-2 py-1 rounded-md text-[10px] font-semibold uppercase tracking-wider border transition",
+                        "flex-1 px-2 py-1.5 rounded-md border transition flex flex-col items-center gap-0.5",
                         f.rollout === s.id ? s.color : "bg-zinc-900/30 text-zinc-600 border-zinc-800 hover:text-zinc-400 hover:border-zinc-700",
                       )}
                     >
-                      {s.label}
+                      <span className="text-[10px] font-semibold uppercase tracking-wider">{s.label}</span>
+                      <span className={cn("text-[9px] normal-case tracking-normal font-normal",
+                        f.rollout === s.id ? "opacity-70" : "opacity-50"
+                      )}>{s.hint}</span>
                     </button>
                   ))}
                 </div>
