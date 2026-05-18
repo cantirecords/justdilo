@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { X, Square, Loader2, Users } from "lucide-react";
+import { X, Square, Loader2, Users, Plus, Trash2, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { createSupabaseBrowser } from "@/lib/supabase/client";
-import type { Meeting, Organization, Task } from "@/lib/types";
+import { useFeature } from "@/lib/features";
+import type { Meeting, MeetingTemplate, Organization, Task } from "@/lib/types";
 
 type Phase = "idle" | "recording" | "uploading" | "processing" | "done" | "error";
 
@@ -16,6 +18,12 @@ function formatElapsed(ms: number): string {
   return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
+// snake_case key → "Snake case" label
+function labelizeSectionKey(key: string): string {
+  const spaced = key.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 type Props = {
   userId: string;
   orgs: Organization[];
@@ -25,10 +33,19 @@ type Props = {
 };
 
 export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated, parentMeeting }: Props) {
+  const templatesEnabled = useFeature("meeting_templates");
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [taskCount, setTaskCount] = useState(0);
+
+  // Templates state
+  const [templates, setTemplates] = useState<MeetingTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [newTplName, setNewTplName] = useState("");
+  const [newTplSections, setNewTplSections] = useState("");
+  const [savingTpl, setSavingTpl] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -38,6 +55,23 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated, 
   const wakeLockRef = useRef<any>(null);
 
   useEffect(() => () => cleanup(), []);
+
+  // Load templates when the feature is on (skip for continuations — template is inherited)
+  useEffect(() => {
+    if (!templatesEnabled || parentMeeting) return;
+    fetch("/api/meetings/templates")
+      .then((r) => r.json())
+      .then(({ templates }) => {
+        const list: MeetingTemplate[] = templates ?? [];
+        setTemplates(list);
+        // Default to "General" built-in
+        const general = list.find((t) => t.is_builtin && t.slug === "general");
+        if (general) setSelectedTemplateId(general.id);
+      })
+      .catch(() => {});
+  }, [templatesEnabled, parentMeeting]);
+
+  const selectedTemplate = templates.find((t) => t.id === selectedTemplateId) ?? null;
 
   // Dismiss on Escape
   useEffect(() => {
@@ -55,6 +89,57 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated, 
     streamRef.current = null;
     try { wakeLockRef.current?.release(); } catch {}
     wakeLockRef.current = null;
+  }
+
+  async function saveCustomTemplate() {
+    const name = newTplName.trim();
+    if (!name) { toast.error("Name required"); return; }
+    const sectionLines = newTplSections
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (!sectionLines.length) { toast.error("Add at least one section"); return; }
+
+    setSavingTpl(true);
+    try {
+      const sections = sectionLines.map((label) => ({
+        key: label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "section",
+        label,
+      }));
+      const res = await fetch("/api/meetings/templates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, sections }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Couldn't save template");
+      setTemplates((prev) => [...prev, json]);
+      setSelectedTemplateId(json.id);
+      setCreatingTemplate(false);
+      setNewTplName("");
+      setNewTplSections("");
+      toast.success("Template saved");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't save template");
+    } finally {
+      setSavingTpl(false);
+    }
+  }
+
+  async function deleteTemplate(id: string) {
+    if (!confirm("Delete this template? Past meetings keep their sections.")) return;
+    try {
+      const res = await fetch(`/api/meetings/templates/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      setTemplates((prev) => prev.filter((t) => t.id !== id));
+      if (selectedTemplateId === id) {
+        const general = templates.find((t) => t.is_builtin && t.slug === "general");
+        setSelectedTemplateId(general?.id ?? null);
+      }
+      toast.success("Template deleted");
+    } catch {
+      toast.error("Couldn't delete template");
+    }
   }
 
   async function startRecording() {
@@ -123,6 +208,7 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated, 
           utcOffset: -new Date().getTimezoneOffset(),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           parent_meeting_id: parentMeeting?.id ?? null,
+          template_id: parentMeeting ? null : selectedTemplateId,
         }),
       });
       const json = await res.json();
@@ -173,13 +259,61 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated, 
         <div className="px-5 pb-8 overflow-y-auto">
 
           {/* Idle */}
-          {phase === "idle" && (
+          {phase === "idle" && !creatingTemplate && (
             <div className="space-y-4">
               {parentMeeting && (
                 <div className="rounded-xl bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground leading-snug">
                   Continuing <strong className="text-foreground/80">{parentMeeting.title}</strong> — new action items will be added to this meeting.
                 </div>
               )}
+
+              {/* Template picker — hidden during continuations (template inherited) */}
+              {templatesEnabled && !parentMeeting && templates.length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-2">Template</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {templates.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => setSelectedTemplateId(t.id)}
+                        className={cn(
+                          "group relative px-3 py-1.5 rounded-full text-xs border transition flex items-center gap-1.5",
+                          selectedTemplateId === t.id
+                            ? "bg-foreground text-background border-foreground"
+                            : "border-border text-foreground/70 hover:bg-muted",
+                        )}
+                      >
+                        {t.name}
+                        {!t.is_builtin && selectedTemplateId === t.id && (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => { e.stopPropagation(); deleteTemplate(t.id); }}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); deleteTemplate(t.id); } }}
+                            className="opacity-60 hover:opacity-100 transition"
+                            aria-label="Delete template"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setCreatingTemplate(true)}
+                      className="px-3 py-1.5 rounded-full text-xs border border-dashed border-border text-muted-foreground hover:bg-muted hover:text-foreground transition flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3" />
+                      New
+                    </button>
+                  </div>
+                  {selectedTemplate && (
+                    <p className="text-[10px] text-muted-foreground/60 mt-2 leading-snug">
+                      Will extract: {(selectedTemplate.sections ?? []).map((s) => s.label).join(" · ")}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Tap <strong>Start</strong> when your meeting begins. Keep this screen open — or leave the tab in the foreground. Tap <strong>End</strong> when you&apos;re done.
               </p>
@@ -191,6 +325,49 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated, 
                 className="w-full py-3 rounded-2xl bg-foreground text-background font-semibold text-sm hover:opacity-90 transition active:scale-[0.98]"
               >
                 {parentMeeting ? "Continue recording" : "Start meeting"}
+              </button>
+            </div>
+          )}
+
+          {/* Create custom template form */}
+          {phase === "idle" && creatingTemplate && (
+            <div className="space-y-4">
+              <button
+                onClick={() => { setCreatingTemplate(false); setNewTplName(""); setNewTplSections(""); }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition"
+              >
+                <ChevronLeft className="w-3 h-3" />
+                Back
+              </button>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1.5">Template name</p>
+                <input
+                  value={newTplName}
+                  onChange={(e) => setNewTplName(e.target.value)}
+                  placeholder="e.g. BTV Production Sync"
+                  className="w-full rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10 placeholder:text-muted-foreground/50"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1.5">Sections to extract</p>
+                <textarea
+                  value={newTplSections}
+                  onChange={(e) => setNewTplSections(e.target.value)}
+                  placeholder={"One section per line, e.g.\nOn-air issues\nContent schedule\nTechnical bugs\nNext steps"}
+                  rows={6}
+                  className="w-full rounded-xl border border-border bg-muted/30 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-foreground/10 placeholder:text-muted-foreground/50 resize-none"
+                />
+                <p className="text-[10px] text-muted-foreground/60 mt-1.5 leading-snug">
+                  Action items are always extracted automatically — you don&apos;t need to add them.
+                </p>
+              </div>
+              <button
+                onClick={saveCustomTemplate}
+                disabled={savingTpl || !newTplName.trim() || !newTplSections.trim()}
+                className="w-full py-3 rounded-2xl bg-foreground text-background font-semibold text-sm hover:opacity-90 transition active:scale-[0.98] disabled:opacity-40"
+              >
+                {savingTpl ? "Saving…" : "Save template"}
               </button>
             </div>
           )}
@@ -241,7 +418,25 @@ export default function MeetingOverlay({ userId, orgs, onClose, onTasksCreated, 
                 )}
               </div>
 
-              {Array.isArray(meeting.decisions) && meeting.decisions.length > 0 && (
+              {/* Render template-driven sections dynamically (skip action_items — has its own block) */}
+              {meeting.sections && Object.entries(meeting.sections)
+                .filter(([key, items]) => key !== "action_items" && Array.isArray(items) && items.length > 0)
+                .map(([key, items]) => (
+                  <div key={key}>
+                    <p className="text-xs uppercase tracking-widest text-muted-foreground/60 mb-1.5">{labelizeSectionKey(key)}</p>
+                    <ul className="space-y-1">
+                      {items.map((d, i) => (
+                        <li key={i} className="text-sm text-foreground/80 leading-snug flex gap-2">
+                          <span className="text-muted-foreground/40 shrink-0">•</span>
+                          {d}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+
+              {/* Backwards-compat: show legacy decisions column if there are no new-style sections */}
+              {(!meeting.sections || Object.keys(meeting.sections).length === 0) && Array.isArray(meeting.decisions) && meeting.decisions.length > 0 && (
                 <div>
                   <p className="text-xs uppercase tracking-widest text-muted-foreground/60 mb-1.5">Decisions</p>
                   <ul className="space-y-1">

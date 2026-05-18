@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
-import { Trash2, Clock, ChevronDown, Pencil, Plus, Check, MoreHorizontal, MessageCircle } from "lucide-react";
+import { Trash2, Clock, ChevronDown, Pencil, Plus, Check, MoreHorizontal, MessageCircle, Users } from "lucide-react";
 import { format, isToday, isTomorrow, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { useFeature } from "@/lib/features";
@@ -294,6 +294,12 @@ function Row({ task, onUpdate, onDelete, currentUserId }: { task: Task } & Omit<
                 task.completed ? "line-through text-muted-foreground" : "cursor-pointer",
               )}
             >
+              {task.meeting_id && (
+                <Users
+                  className="inline w-3 h-3 mr-1 text-muted-foreground/50 align-text-bottom"
+                  aria-label="From meeting"
+                />
+              )}
               {task.title}
             </span>
 

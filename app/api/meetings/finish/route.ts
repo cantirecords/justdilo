@@ -15,6 +15,7 @@ type FinishBody = {
   utcOffset?: number;
   timezone?: string;
   parent_meeting_id?: string | null;
+  template_id?: string | null;
 };
 
 export async function POST(req: Request) {
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
 
   let body: FinishBody;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "invalid body" }, { status: 400 }); }
-  const { path, duration_seconds, org_id, project_id, parent_meeting_id } = body;
+  const { path, duration_seconds, org_id, project_id, parent_meeting_id, template_id } = body;
   const utcOffset = Number(body.utcOffset ?? 0);
   const timezone = body.timezone;
   if (!path || typeof path !== "string") {
@@ -48,6 +49,40 @@ export async function POST(req: Request) {
     parentMeeting = pm;
   }
 
+  // ── Load template ─────────────────────────────────────────────────────────
+  // Continuations inherit the parent's template. New meetings use the picked
+  // template (or fall back to General). Built-in templates are world-readable,
+  // user templates are scoped by RLS.
+  const effectiveTemplateId = parentMeeting?.template_id ?? template_id ?? null;
+  let template: any = null;
+  if (effectiveTemplateId) {
+    const { data: t } = await supabase
+      .from("meeting_templates")
+      .select("id, name, slug, description, sections")
+      .eq("id", effectiveTemplateId)
+      .maybeSingle();
+    if (t) template = t;
+  }
+  if (!template) {
+    // Fall back to the built-in General template
+    const { data: g } = await supabase
+      .from("meeting_templates")
+      .select("id, name, slug, description, sections")
+      .eq("is_builtin", true)
+      .eq("slug", "general")
+      .maybeSingle();
+    template = g ?? {
+      id: null,
+      name: "General",
+      slug: "general",
+      description: null,
+      sections: [
+        { key: "decisions", label: "Decisions", description: "Concrete decisions the group made" },
+        { key: "action_items", label: "Action items", description: "Tasks assigned to specific people" },
+      ],
+    };
+  }
+
   // ── Create or reuse the meeting row ───────────────────────────────────────
   let meeting: any;
   if (!parentMeeting) {
@@ -58,6 +93,7 @@ export async function POST(req: Request) {
         org_id: org_id ?? null,
         project_id: project_id ?? null,
         duration_seconds: duration_seconds ?? null,
+        template_id: template.id,
         status: "processing",
       })
       .select()
@@ -136,11 +172,15 @@ export async function POST(req: Request) {
 
   // ── Summarize + extract action items ──────────────────────────────────────
   // For continuations, summarize only the new portion to extract fresh action
-  // items and decisions, then merge with the parent's existing data.
+  // items and sections, then merge with the parent's existing data.
   const transcriptForSummary = transcript;
   let summary: Awaited<ReturnType<typeof summarizeMeeting>>;
   try {
-    summary = await summarizeMeeting(transcriptForSummary, teamMembers);
+    summary = await summarizeMeeting(transcriptForSummary, teamMembers, {
+      name: template.name,
+      description: template.description,
+      sections: template.sections ?? [],
+    });
   } catch (e: any) {
     console.error("[meetings/finish] summarize failed:", e?.message);
     const combinedTranscript = parentMeeting
@@ -218,20 +258,32 @@ export async function POST(req: Request) {
   }
 
   // ── Finalize the meeting row ──────────────────────────────────────────────
-  // For continuations: append transcript, merge decisions + action items,
+  // For continuations: append transcript, merge sections + action items,
   // sum duration. Keep the original title (user already named the meeting).
   const finalTranscript = parentMeeting
     ? `${parentMeeting.transcript ?? ""}\n\n---\n\n[Session 2]\n${transcript}`.trim()
     : transcript;
-  const finalDecisions = parentMeeting
-    ? [...(parentMeeting.decisions ?? []), ...summary.decisions]
-    : summary.decisions;
   const finalActionItems = parentMeeting
     ? [...(parentMeeting.action_items ?? []), ...summary.action_items]
     : summary.action_items;
   const finalDuration = parentMeeting && parentMeeting.duration_seconds != null
     ? (parentMeeting.duration_seconds ?? 0) + (duration_seconds ?? 0)
     : duration_seconds ?? null;
+
+  // Merge sections (concat arrays per key) on continuations
+  const newSections: Record<string, string[]> = summary.sections ?? {};
+  const finalSections: Record<string, string[]> = parentMeeting
+    ? (() => {
+        const merged: Record<string, string[]> = { ...(parentMeeting.sections ?? {}) };
+        for (const [k, v] of Object.entries(newSections)) {
+          merged[k] = [...(merged[k] ?? []), ...v];
+        }
+        return merged;
+      })()
+    : newSections;
+
+  // Keep legacy decisions column populated for any old code that reads it
+  const finalDecisions = finalSections.decisions ?? [];
 
   const { data: finalized } = await supabase
     .from("meetings")
@@ -243,6 +295,7 @@ export async function POST(req: Request) {
         : summary.summary,
       decisions: finalDecisions,
       action_items: finalActionItems,
+      sections: finalSections,
       language: summary.language,
       duration_seconds: finalDuration,
       status: "done",

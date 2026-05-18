@@ -107,6 +107,23 @@ export type MeetingActionItem = {
 
 export type MeetingStatus = "processing" | "done" | "failed";
 
+export type MeetingTemplateSection = {
+  key: string;
+  label: string;
+  description?: string;
+};
+
+export type MeetingTemplate = {
+  id: string;
+  user_id: string | null;
+  name: string;
+  slug: string;
+  description: string | null;
+  sections: MeetingTemplateSection[];
+  is_builtin: boolean;
+  created_at: string;
+};
+
 export type Meeting = {
   id: string;
   user_id: string;
@@ -117,6 +134,8 @@ export type Meeting = {
   summary: string | null;
   decisions: string[];
   action_items: MeetingActionItem[];
+  sections: Record<string, string[]>;
+  template_id: string | null;
   duration_seconds: number | null;
   language: string | null;
   status: MeetingStatus;

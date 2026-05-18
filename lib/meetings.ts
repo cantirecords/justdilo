@@ -36,34 +36,65 @@ export const ActionItemSchema = z.object({
   priority: z.enum(["low", "med", "high"]).nullable().optional().default(null),
 });
 
+// Sections are a free-form map: { section_key: ["point 1", "point 2", ...] }
+// The keys are dictated by the active template (e.g. decisions, blockers, ideas).
+// action_items live alongside sections because they always create real tasks.
 export const MeetingSummarySchema = z.object({
   title: z.string().default("Meeting"),
   summary: z.string().default(""),
   language: z.enum(["en", "es", "other"]).default("en"),
-  decisions: z.array(z.string()).default([]),
   action_items: z.array(ActionItemSchema).default([]),
+  sections: z.record(z.string(), z.array(z.string())).default({}),
 });
 
 export type ActionItem = z.infer<typeof ActionItemSchema>;
 export type MeetingSummary = z.infer<typeof MeetingSummarySchema>;
 
-const MEETING_SYSTEM = `You are an expert meeting note-taker for a team task manager.
+export type TemplateSectionInput = { key: string; label: string; description?: string };
+export type TemplateInput = { name: string; description?: string | null; sections: TemplateSectionInput[] };
+
+const DEFAULT_TEMPLATE: TemplateInput = {
+  name: "General",
+  description: "Default — fits any meeting",
+  sections: [
+    { key: "decisions", label: "Decisions", description: "Concrete decisions the group made" },
+    { key: "action_items", label: "Action items", description: "Tasks assigned to specific people" },
+  ],
+};
+
+function buildSystemPrompt(template: TemplateInput): string {
+  // action_items is always extracted (it drives task creation), regardless of
+  // whether the template lists it explicitly. All other sections come from
+  // the template.
+  const nonActionSections = template.sections.filter((s) => s.key !== "action_items");
+
+  const sectionLines = nonActionSections.length
+    ? nonActionSections.map((s) => `  - "${s.key}" (${s.label}): ${s.description ?? "Relevant points from the transcript"}`).join("\n")
+    : "  (no extra sections for this template — extract only summary and action items)";
+
+  const sampleSections = nonActionSections.length
+    ? `{\n${nonActionSections.map((s) => `    "${s.key}": ["..."]`).join(",\n")}\n  }`
+    : `{}`;
+
+  return `You are an expert meeting note-taker for a team task manager.
 You read raw meeting transcripts (often unstructured, multi-speaker, possibly mixed language) and produce a clean structured summary plus a list of action items, each assigned to the right person when the transcript makes it clear.
 
+━━ MEETING TYPE ━━
+Template: "${template.name}"${template.description ? ` — ${template.description}` : ""}
+
 ━━ LANGUAGE RULE ━━
-Detect the dominant language of the transcript. Output the title, summary, decisions, and action item titles in THAT language. Never translate.
+Detect the dominant language of the transcript. Output the title, summary, section contents, and action item titles in THAT language. Never translate.
 - Spanish meeting → Spanish output. English → English. Mixed → use the dominant one.
 
 ━━ TITLE ━━
 5–10 words. Capture the actual topic, not a generic "Team Meeting".
-Examples: "Q3 product roadmap review", "Marketing launch planning", "Reunión semanal de ventas".
 
 ━━ SUMMARY ━━
 2–4 sentences. Cover what was discussed and what was decided. Concrete, not generic.
 
-━━ DECISIONS ━━
-Each entry: one concrete decision the group made (1 sentence). Skip if nothing was decided.
-Example: "Move launch from June 15 to July 1 to give QA more time."
+━━ SECTIONS — extract one short list per key below ━━
+For each section, extract the relevant points from the transcript as a list of short, self-contained sentences. Skip entries that don't apply (return an empty array for that key). Do NOT invent content the meeting didn't produce.
+${sectionLines}
 
 ━━ ACTION ITEMS — MOST IMPORTANT ━━
 An action item = a concrete thing a specific person committed to doing.
@@ -76,19 +107,20 @@ An action item = a concrete thing a specific person committed to doing.
 - priority: "high" only if the meeting explicitly framed it as urgent/critical/blocker. Else null.
 
 Do NOT invent action items the meeting didn't produce. If nobody committed to anything, return an empty array.
-Do NOT duplicate decisions as action items.
+Do NOT duplicate section content as action items.
 
 ━━ RESPONSE FORMAT ━━
-Return ONLY valid JSON, no markdown:
+Return ONLY valid JSON, no markdown. Use EXACTLY the section keys shown — no extra keys, no renames:
 {
   "title": "...",
   "summary": "...",
   "language": "en" | "es" | "other",
-  "decisions": ["..."],
+  "sections": ${sampleSections},
   "action_items": [
     { "title": "...", "note": "...|null", "assignee_name": "Alice|null", "due": "next Friday|null", "priority": "high|null" }
   ]
 }`;
+}
 
 function safeParseJSON(raw: string): unknown {
   try { return JSON.parse(raw); } catch {}
@@ -125,13 +157,14 @@ async function callOpenAI(messages: { role: "system" | "user"; content: string }
 export async function summarizeMeeting(
   transcript: string,
   teamMembers: string[] = [],
+  template: TemplateInput = DEFAULT_TEMPLATE,
 ): Promise<MeetingSummary & { _provider: string; _ms: number }> {
   const userContent = teamMembers.length > 0
     ? `TEAM ROSTER (only assign action items to these names): ${teamMembers.join(", ")}\n\nTRANSCRIPT:\n${transcript}`
     : `TRANSCRIPT (solo or untracked roster — leave assignee_name null):\n${transcript}`;
 
   const messages = [
-    { role: "system" as const, content: MEETING_SYSTEM },
+    { role: "system" as const, content: buildSystemPrompt(template) },
     { role: "user" as const, content: userContent },
   ];
 
@@ -172,8 +205,8 @@ export async function summarizeMeeting(
       title: "Meeting",
       summary: transcript.slice(0, 200),
       language: "en",
-      decisions: [],
       action_items: [],
+      sections: {},
       _provider: usedProvider,
       _ms,
     };

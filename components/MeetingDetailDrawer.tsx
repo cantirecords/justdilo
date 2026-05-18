@@ -14,6 +14,11 @@ function formatDuration(seconds: number | null | undefined): string {
   return `${seconds}s`;
 }
 
+function labelizeSectionKey(key: string): string {
+  const spaced = key.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 type Props = {
   meeting: Meeting;
   onClose: () => void;
@@ -96,8 +101,25 @@ export default function MeetingDetailDrawer({ meeting, onClose, onDelete, onCont
             </div>
           )}
 
-          {/* Decisions */}
-          {Array.isArray(meeting.decisions) && meeting.decisions.length > 0 && (
+          {/* Template-driven sections (skip action_items — has its own block below) */}
+          {meeting.sections && Object.entries(meeting.sections)
+            .filter(([key, items]) => key !== "action_items" && Array.isArray(items) && items.length > 0)
+            .map(([key, items]) => (
+              <div key={key}>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1.5">{labelizeSectionKey(key)}</p>
+                <ul className="space-y-1.5">
+                  {items.map((d, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-foreground/80 leading-snug">
+                      <span className="text-muted-foreground/40 shrink-0 mt-0.5">•</span>
+                      {d}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+
+          {/* Backwards-compat: show legacy decisions column if no new-style sections present */}
+          {(!meeting.sections || Object.keys(meeting.sections).length === 0) && Array.isArray(meeting.decisions) && meeting.decisions.length > 0 && (
             <div>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1.5">Decisions</p>
               <ul className="space-y-1.5">
