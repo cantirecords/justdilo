@@ -19,6 +19,7 @@ import OrgPanel from "./OrgPanel";
 import ProjectPanel from "./ProjectPanel";
 import { parseISO, isPast, isToday } from "date-fns";
 import type { Task, Organization } from "@/lib/types";
+import { useFeature } from "@/lib/features";
 
 const DEV_EMAIL = "yorohn@duck.com";
 
@@ -129,6 +130,13 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
   const [, start] = useTransition();
   const { speak } = useTTS();
   const isDevMode = userEmail === DEV_EMAIL;
+  const orgsFlag      = useFeature("organizations_teams");
+  const projectsFlag  = useFeature("projects");
+  const debugFlag     = useFeature("dev_debug_overlay");
+  // Admin always sees admin-rolled-out features via the resolver, but data-loading
+  // for orgs is still gated by profiles.orgs_enabled (server-side) — keep that AND.
+  const showTeamsUI    = orgsFlag && orgsEnabled;
+  const showProjectsUI = projectsFlag && orgsEnabled;
   const [debugData, setDebugData] = useState<any>(null);
   const [showAdmin, setShowAdmin] = useState(false);
 
@@ -241,7 +249,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
   }, [voiceOn]);
 
   const handleVoiceResult = useCallback((json: any) => {
-    if (isDevMode) setDebugData(json);
+    if (debugFlag) setDebugData(json);
     const intent = json.intent ?? "CREATE_TASK";
 
     if (intent === "UPDATE_TASK" && json.updated_tasks?.length) {
@@ -274,7 +282,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
     if ((intent === "UPDATE_TASK" || intent === "DELETE_TASK" || intent === "COMPLETE_TASK") && json.not_found) {
       toast.warning("Couldn't find that task");
     }
-  }, [voiceOn, speak, isDevMode]);
+  }, [voiceOn, speak, debugFlag]);
 
   function onQuickAddTasks(newTasks: Task[], summary: string, groupCount: number) {
     onNewTasks(newTasks, "", summary, groupCount);
@@ -377,13 +385,13 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
      */
     <main className="min-h-dvh xl:grid xl:grid-cols-[300px_1fr] xl:h-screen xl:overflow-hidden">
       {showNicknameModal && <NicknameModal onSave={handleNicknameSave} />}
-      {isDevMode && debugData && (
+      {debugFlag && debugData && (
         <TranscriptDebug data={debugData} onClose={() => setDebugData(null)} />
       )}
       {isDevMode && showAdmin && (
         <AdminPanel onClose={() => setShowAdmin(false)} />
       )}
-      {orgsEnabled && showOrgPanel && (
+      {showTeamsUI && showOrgPanel && (
         <OrgPanel
           orgs={orgs}
           userId={userId}
@@ -391,7 +399,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
           onOrgsChange={setOrgs}
         />
       )}
-      {orgsEnabled && showProjectPanel && (
+      {showProjectsUI && showProjectPanel && (
         <ProjectPanel
           orgs={orgs}
           userId={userId}
@@ -428,7 +436,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
                 <BarChart2 className="w-4 h-4" />
               </button>
             )}
-            {orgsEnabled && (
+            {showTeamsUI && (
               <button
                 onClick={() => setShowOrgPanel(true)}
                 className="p-2 rounded-full hover:bg-muted transition"
@@ -438,7 +446,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
                 <Users className="w-4 h-4" />
               </button>
             )}
-            {orgsEnabled && (
+            {showProjectsUI && (
               <button
                 onClick={() => setShowProjectPanel(true)}
                 className="p-2 rounded-full hover:bg-muted transition"
