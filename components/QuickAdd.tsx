@@ -1,21 +1,25 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Plus, X, Send, Loader2 } from "lucide-react";
+import { Plus, X, Send, Loader2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useFeature } from "@/lib/features";
 import type { Task } from "@/lib/types";
 
 type AbandonmentHint = { rate: number; sample: number } | null;
+type Mode = "picker" | "task";
 
 type Props = {
   onNewTasks: (tasks: Task[], summary: string, groupCount: number) => void;
   onVoiceResult?: (json: any) => void;
+  onStartMeeting?: () => void;
 };
 
-export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
+export default function QuickAdd({ onNewTasks, onVoiceResult, onStartMeeting }: Props) {
   const abandonHintEnabled = useFeature("abandonment_hint");
+  const meetingsEnabled = useFeature("meetings");
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>("task");
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [abandonHint, setAbandonHint] = useState<AbandonmentHint>(null);
@@ -23,7 +27,7 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (open) {
+    if (open && mode === "task") {
       setTimeout(() => textareaRef.current?.focus(), 100);
       if (abandonHintEnabled && !hintFetchedRef.current) {
         hintFetchedRef.current = true;
@@ -46,7 +50,7 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
         e.preventDefault();
         setOpen((v) => !v);
       }
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") { setOpen(false); setMode("task"); }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -144,13 +148,28 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
     }
   }
 
+  function openAsPicker() {
+    if (meetingsEnabled && onStartMeeting) {
+      setMode("picker");
+      setOpen(true);
+    } else {
+      setMode("task");
+      setOpen(true);
+    }
+  }
+
+  function close() {
+    setOpen(false);
+    setMode("task");
+  }
+
   return (
     <>
       {/* Floating button */}
       <button
-        onClick={() => setOpen(true)}
+        onClick={openAsPicker}
         className="fixed bottom-8 right-5 z-40 w-14 h-14 rounded-full bg-foreground text-background shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
-        aria-label="Add task manually"
+        aria-label="Add task or meeting"
       >
         <Plus className="w-6 h-6" />
       </button>
@@ -158,50 +177,94 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
       {/* Bottom sheet overlay */}
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={close} />
           <div className="relative bg-background rounded-t-3xl p-5 pb-8 shadow-2xl animate-rise">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="font-semibold">Add tasks</h2>
-                <p className="text-xs text-muted-foreground">Type naturally — AI will organize it</p>
-              </div>
-              <button onClick={() => setOpen(false)} className="p-1.5 rounded-full hover:bg-muted">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
-              }}
-              placeholder={'e.g. "Call Marc tomorrow at 3pm about the invoice, book dentist next week"'}
-              rows={4}
-              className="w-full rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-foreground/10 resize-none placeholder:text-muted-foreground/50"
-            />
-
-            {abandonHintEnabled && abandonHint && (
-              <p className="text-[11px] text-amber-600/70 dark:text-amber-400/60 px-1 mt-2">
-                Heads up: {abandonHint.rate}% of your undated tasks go unfinished — a deadline helps
-              </p>
+            {/* Mode picker */}
+            {mode === "picker" && (
+              <>
+                <div className="flex items-center justify-between mb-5">
+                  <h2 className="font-semibold">What do you want to add?</h2>
+                  <button onClick={close} className="p-1.5 rounded-full hover:bg-muted">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="space-y-2.5">
+                  <button
+                    onClick={() => setMode("task")}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border border-border hover:bg-muted/60 transition text-left"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-foreground/10 flex items-center justify-center shrink-0">
+                      <Plus className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">Task</p>
+                      <p className="text-xs text-muted-foreground">Type or dictate — AI organizes it</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => { close(); onStartMeeting?.(); }}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl border border-border hover:bg-muted/60 transition text-left"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-foreground/10 flex items-center justify-center shrink-0">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">Meeting</p>
+                      <p className="text-xs text-muted-foreground">Record, transcribe, auto-assign tasks</p>
+                    </div>
+                  </button>
+                </div>
+              </>
             )}
 
-            <div className="flex items-center justify-between mt-3">
-              <p className="text-xs text-muted-foreground">⌘K to open · Esc to close · ⌘↵ to submit</p>
-              <button
-                onClick={submit}
-                disabled={!text.trim() || loading}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-xl bg-foreground text-background text-sm font-medium transition",
-                  "disabled:opacity-40",
+            {/* Task entry */}
+            {mode === "task" && (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="font-semibold">Add tasks</h2>
+                    <p className="text-xs text-muted-foreground">Type naturally — AI will organize it</p>
+                  </div>
+                  <button onClick={close} className="p-1.5 rounded-full hover:bg-muted">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <textarea
+                  ref={textareaRef}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+                  }}
+                  placeholder={'e.g. "Call Marc tomorrow at 3pm about the invoice, book dentist next week"'}
+                  rows={4}
+                  className="w-full rounded-2xl border border-border bg-muted/30 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-foreground/10 resize-none placeholder:text-muted-foreground/50"
+                />
+
+                {abandonHintEnabled && abandonHint && (
+                  <p className="text-[11px] text-amber-600/70 dark:text-amber-400/60 px-1 mt-2">
+                    Heads up: {abandonHint.rate}% of your undated tasks go unfinished — a deadline helps
+                  </p>
                 )}
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                {loading ? "Thinking…" : "Add"}
-              </button>
-            </div>
+
+                <div className="flex items-center justify-between mt-3">
+                  <p className="text-xs text-muted-foreground">⌘K to open · Esc to close · ⌘↵ to submit</p>
+                  <button
+                    onClick={submit}
+                    disabled={!text.trim() || loading}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-xl bg-foreground text-background text-sm font-medium transition",
+                      "disabled:opacity-40",
+                    )}
+                  >
+                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {loading ? "Thinking…" : "Add"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

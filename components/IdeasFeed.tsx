@@ -4,7 +4,11 @@ import { Mic, MicOff, Send, Loader2, Sparkles, ListChecks, Users, Lightbulb } fr
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import IdeaCard from "./IdeaCard";
+import MeetingsView from "./MeetingsView";
+import { useFeature } from "@/lib/features";
 import type { Idea } from "@/lib/types";
+
+type NotesTab = "ideas" | "meetings";
 
 type Filter = "all" | "mine" | "shared" | "actions";
 
@@ -26,6 +30,8 @@ function bucketOf(iso: string): "today" | "week" | "earlier" {
 }
 
 export default function IdeasFeed() {
+  const meetingsEnabled = useFeature("meetings");
+  const [notesTab, setNotesTab] = useState<NotesTab>("ideas");
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
@@ -177,6 +183,32 @@ export default function IdeasFeed() {
 
   return (
     <div className="space-y-4">
+      {/* Ideas | Meetings toggle (only when meetings flag is enabled) */}
+      {meetingsEnabled && (
+        <div className="flex items-center gap-0.5 bg-muted/40 rounded-2xl p-1">
+          {(["ideas", "meetings"] as NotesTab[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setNotesTab(tab)}
+              className={cn(
+                "flex-1 py-1.5 rounded-xl text-[11px] font-medium capitalize transition-all duration-150",
+                notesTab === tab
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Meetings sub-view */}
+      {meetingsEnabled && notesTab === "meetings" && <MeetingsView />}
+
+      {/* Ideas sub-view (hidden when meetings tab is active) */}
+      {(!meetingsEnabled || notesTab === "ideas") && <>
+
       {/* Stats strip — connects to Tasks + sharing */}
       {!loading && stats.total > 0 && (
         <div className="grid grid-cols-3 gap-2">
@@ -306,6 +338,7 @@ export default function IdeasFeed() {
           <Bucket title="Earlier" ideas={grouped.earlier} onDelete={deleteIdea} onUpdate={updateIdea} />
         </div>
       )}
+      </>}
     </div>
   );
 }
