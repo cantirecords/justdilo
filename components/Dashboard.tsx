@@ -13,6 +13,9 @@ import TaskFeed from "./TaskFeed";
 import QuickAdd from "./QuickAdd";
 import OnboardingHints from "./OnboardingHints";
 import WelcomeCard from "./WelcomeCard";
+import MicPrimer from "./MicPrimer";
+import PushPrimer from "./PushPrimer";
+import InstallPrimer from "./InstallPrimer";
 import SearchBar from "./SearchBar";
 import NicknameModal from "./NicknameModal";
 import TranscriptDebug from "./TranscriptDebug";
@@ -478,7 +481,10 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
         <div className="flex flex-col items-center
                         xl:flex-1 xl:justify-center xl:py-8">
           <div className="w-full max-w-sm">
+            <MicPrimer />
             <WelcomeCard taskCount={tasks.length} nickname={nickname} />
+            <PushPrimer taskCount={tasks.length} />
+            <InstallPrimer />
           </div>
           <MicButton
             ref={micRef}

@@ -50,6 +50,7 @@ export default function PushNotificationButton() {
         const permission = await Notification.requestPermission();
         if (permission === "granted") {
           setState("subscribed");
+          window.dispatchEvent(new Event("justdilo:push-subscribed"));
           toast.success("You'll get system alerts for your tasks");
           new Notification("JustDilo", { body: "Notifications are on!" });
         } else {
@@ -99,12 +100,22 @@ export default function PushNotificationButton() {
       });
 
       setState("subscribed");
+      window.dispatchEvent(new Event("justdilo:push-subscribed"));
       toast.success("You'll get a daily reminder for tasks due today");
     } catch {
       setState("unsubscribed");
       toast.error("Couldn't enable notifications");
     }
   }
+
+  // Allow other components (e.g. PushPrimer) to trigger the same subscribe flow
+  useEffect(() => {
+    function onRequest() {
+      if (state === "unsubscribed") toggle();
+    }
+    window.addEventListener("justdilo:request-push", onRequest);
+    return () => window.removeEventListener("justdilo:request-push", onRequest);
+  }, [state]);
 
   if (state === "unsupported" || state === "denied") return null;
 
