@@ -52,6 +52,18 @@ export default function QuickAdd({ onNewTasks, onVoiceResult }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // External seed event — opens the sheet with text pre-filled (used by OnboardingHints)
+  useEffect(() => {
+    function onSeed(e: Event) {
+      const text = (e as CustomEvent<{ text: string }>).detail?.text;
+      if (!text) return;
+      setText(text);
+      setOpen(true);
+    }
+    window.addEventListener("justdilo:seed-quickadd", onSeed);
+    return () => window.removeEventListener("justdilo:seed-quickadd", onSeed);
+  }, []);
+
   // Flush offline queue when back online
   useEffect(() => {
     const LS_KEY = "justdilo:offlineQueue";

@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { X, RefreshCw, Mic, CheckSquare, BarChart2, Users, Brain, Zap, AlertTriangle, TrendingUp, Clock, ChevronDown, ChevronUp, Trash2, Copy, Check, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useFeature } from "@/lib/features";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type DayCount = { date: string; count: number };
@@ -581,6 +582,123 @@ function AnalysisTab({ stats }: { stats: Stats }) {
   );
 }
 
+// ── User Activity Section ─────────────────────────────────────────────────────
+type ActivityData = {
+  totalUsers: number;
+  active24h: number;
+  active7d: number;
+  active30d: number;
+  dailyActives: { date: string; count: number }[];
+  users: { id: string; email: string; nickname: string | null; lastActivityAt: string | null; tasks30d: number }[];
+};
+
+function relativeAgo(iso: string | null): string {
+  if (!iso) return "never";
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1)   return "just now";
+  if (m < 60)  return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)  return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30)  return `${d}d ago`;
+  const mo = Math.floor(d / 30);
+  return `${mo}mo ago`;
+}
+
+function UserActivitySection() {
+  const [data, setData]       = useState<ActivityData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/admin/activity")
+      .then((r) => r.json().then((j) => ({ ok: r.ok, json: j })))
+      .then(({ ok, json }) => {
+        if (!alive) return;
+        if (!ok) setError(json?.error ?? "Failed to load activity");
+        else setData(json);
+      })
+      .catch((e) => alive && setError(e.message))
+      .finally(() => alive && setLoading(false));
+    return () => { alive = false; };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-6 text-zinc-600 text-sm">
+        <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Loading activity…
+      </div>
+    );
+  }
+  if (error || !data) return (
+    <p className="text-[11px] text-zinc-600 italic">Activity unavailable: {error ?? "no data"}</p>
+  );
+
+  const maxDaily = Math.max(1, ...data.dailyActives.map((d) => d.count));
+
+  return (
+    <div className="space-y-4 mb-5">
+      <div>
+        <p className="text-[11px] font-bold tracking-widest text-zinc-500 uppercase mb-2">User activity</p>
+        <div className="grid grid-cols-4 gap-2">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-2 py-2">
+            <p className="text-[9px] text-zinc-500 uppercase tracking-wider">Total</p>
+            <p className="text-lg font-bold text-zinc-100 leading-tight">{data.totalUsers}</p>
+          </div>
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-2 py-2">
+            <p className="text-[9px] text-emerald-400 uppercase tracking-wider">24h</p>
+            <p className="text-lg font-bold text-zinc-100 leading-tight">{data.active24h}</p>
+          </div>
+          <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 px-2 py-2">
+            <p className="text-[9px] text-sky-400 uppercase tracking-wider">7d</p>
+            <p className="text-lg font-bold text-zinc-100 leading-tight">{data.active7d}</p>
+          </div>
+          <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 px-2 py-2">
+            <p className="text-[9px] text-violet-400 uppercase tracking-wider">30d</p>
+            <p className="text-lg font-bold text-zinc-100 leading-tight">{data.active30d}</p>
+          </div>
+        </div>
+      </div>
+
+      {data.dailyActives.length > 0 && (
+        <div>
+          <p className="text-[10px] text-zinc-500 mb-1.5">Daily active users (last 30 days)</p>
+          <div className="flex items-end gap-[2px] h-12 px-1 bg-zinc-900/40 border border-zinc-800 rounded-lg py-1">
+            {data.dailyActives.map((d) => (
+              <div
+                key={d.date}
+                className="flex-1 bg-emerald-500/60 rounded-sm min-h-[2px]"
+                style={{ height: `${(d.count / maxDaily) * 100}%` }}
+                title={`${d.date}: ${d.count} active`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <p className="text-[10px] text-zinc-500 mb-1.5">Users by recency</p>
+        <div className="space-y-1 max-h-64 overflow-y-auto">
+          {data.users.map((u) => (
+            <div key={u.id} className="flex items-center justify-between rounded-md border border-zinc-800/60 bg-zinc-900/30 px-2.5 py-1.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] text-zinc-200 truncate">{u.nickname ?? u.email}</p>
+                {u.nickname && <p className="text-[10px] text-zinc-600 truncate">{u.email}</p>}
+              </div>
+              <div className="text-right shrink-0 ml-2">
+                <p className="text-[10px] text-zinc-400">{relativeAgo(u.lastActivityAt)}</p>
+                <p className="text-[9px] text-zinc-600">{u.tasks30d} task{u.tasks30d === 1 ? "" : "s"} / 30d</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Flags Tab ─────────────────────────────────────────────────────────────────
 type FeatureFlag = {
   key: string;
@@ -882,6 +1000,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const activityPanelEnabled = useFeature("user_activity_panel");
 
   async function load() {
     setLoading(true);
@@ -954,6 +1073,7 @@ export default function AdminPanel({ onClose }: { onClose: () => void }) {
           {stats && tab === "overview"  && <OverviewTab stats={stats} />}
           {stats && tab === "quality"   && <QualityTab q={stats.aiQuality} />}
           {stats && tab === "users"     && <UsersTab b={stats.behavior} />}
+          {tab === "analysis" && activityPanelEnabled && <UserActivitySection />}
           {stats && tab === "analysis"  && <AnalysisTab stats={stats} />}
           {tab === "flags" && <FlagsTab />}
         </div>

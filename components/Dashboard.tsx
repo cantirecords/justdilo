@@ -11,6 +11,7 @@ import ProcessingStatus, { type ProcessPhase } from "./ProcessingStatus";
 import FloatingWidget from "./FloatingWidget";
 import TaskFeed from "./TaskFeed";
 import QuickAdd from "./QuickAdd";
+import OnboardingHints from "./OnboardingHints";
 import SearchBar from "./SearchBar";
 import NicknameModal from "./NicknameModal";
 import TranscriptDebug from "./TranscriptDebug";
@@ -133,10 +134,10 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
   const orgsFlag      = useFeature("organizations_teams");
   const projectsFlag  = useFeature("projects");
   const debugFlag     = useFeature("dev_debug_overlay");
-  // Admin always sees admin-rolled-out features via the resolver, but data-loading
-  // for orgs is still gated by profiles.orgs_enabled (server-side) — keep that AND.
-  const showTeamsUI    = orgsFlag && orgsEnabled;
-  const showProjectsUI = projectsFlag && orgsEnabled;
+  // Admin always sees admin-rolled-out features. The `|| isDevMode` fallback
+  // keeps the icons visible even if the flag row isn't in the DB yet.
+  const showTeamsUI    = (orgsFlag    || isDevMode) && orgsEnabled;
+  const showProjectsUI = (projectsFlag || isDevMode) && orgsEnabled;
   const [debugData, setDebugData] = useState<any>(null);
   const [showAdmin, setShowAdmin] = useState(false);
 
@@ -249,7 +250,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
   }, [voiceOn]);
 
   const handleVoiceResult = useCallback((json: any) => {
-    if (debugFlag) setDebugData(json);
+    if (debugFlag || isDevMode) setDebugData(json);
     const intent = json.intent ?? "CREATE_TASK";
 
     if (intent === "UPDATE_TASK" && json.updated_tasks?.length) {
@@ -385,7 +386,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
      */
     <main className="min-h-dvh xl:grid xl:grid-cols-[300px_1fr] xl:h-screen xl:overflow-hidden">
       {showNicknameModal && <NicknameModal onSave={handleNicknameSave} />}
-      {debugFlag && debugData && (
+      {(debugFlag || isDevMode) && debugData && (
         <TranscriptDebug data={debugData} onClose={() => setDebugData(null)} />
       )}
       {isDevMode && showAdmin && (
@@ -492,6 +493,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
                 </p>
             }
           </div>
+          <OnboardingHints taskCount={tasks.length} />
         </div>
       </aside>
 
