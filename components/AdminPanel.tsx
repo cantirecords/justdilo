@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { X, RefreshCw, Mic, CheckSquare, BarChart2, Users, Brain, Zap, AlertTriangle, TrendingUp, Clock, ChevronDown, ChevronUp, Trash2, Copy, Check, Flag } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useFeature } from "@/lib/features";
 
@@ -788,10 +789,16 @@ function FlagsTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim().toLowerCase(), enabled }),
       });
+      const json = await res.json();
       if (res.ok) {
         await load();
         setNewTesterEmail("");
+        toast.success(enabled ? `${email} added as beta tester` : `${email} removed`);
+      } else {
+        toast.error(json.error ?? "Couldn't update beta tester");
       }
+    } catch {
+      toast.error("Network error — try again");
     } finally {
       setAdding(false);
     }
