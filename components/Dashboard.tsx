@@ -12,6 +12,7 @@ import FloatingWidget from "./FloatingWidget";
 import TaskFeed from "./TaskFeed";
 import QuickAdd from "./QuickAdd";
 import OnboardingHints from "./OnboardingHints";
+import WelcomeCard from "./WelcomeCard";
 import SearchBar from "./SearchBar";
 import NicknameModal from "./NicknameModal";
 import TranscriptDebug from "./TranscriptDebug";
@@ -476,6 +477,9 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
         {/* Mic button — centered vertically in sidebar on desktop */}
         <div className="flex flex-col items-center
                         xl:flex-1 xl:justify-center xl:py-8">
+          <div className="w-full max-w-sm">
+            <WelcomeCard taskCount={tasks.length} nickname={nickname} />
+          </div>
           <MicButton
             ref={micRef}
             onProcessingChange={setProcessing}

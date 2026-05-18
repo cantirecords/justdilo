@@ -1,8 +1,16 @@
 -- New flags: onboarding hints + user activity panel
 insert into public.feature_flags (key, description, rollout) values
   ('onboarding_hints',    'Three example phrase chips below the mic when the user has zero tasks', 'admin'),
-  ('user_activity_panel', 'Active users / last-seen list in admin Analysis tab',                    'admin')
+  ('user_activity_panel', 'Active users / last-seen list in admin Analysis tab',                    'admin'),
+  ('welcome_card',        'First-visit welcome card above the mic (3-step explainer + dismissable)','admin')
 on conflict (key) do nothing;
+
+update public.feature_flags
+   set category   = 'Activation',
+       how_to_use  = 'New signups (taskCount = 0) see a welcome card above the mic with: greeting (uses nickname if set), one-line value prop, and a 3-step explainer ("Tap mic → Say anything → AI organizes"). Locale-aware (EN/ES). Dismissable via X or "Got it" — persisted in localStorage. Disappears automatically once user has any task.',
+       impact      = 'Eliminates the cold-start "what do I do?" moment for voice-first UX. Pairs with onboarding_hints (which appears just below it) to give both context AND concrete examples.',
+       location    = 'Dashboard sidebar (WelcomeCard component, above mic)'
+ where key = 'welcome_card';
 
 update public.feature_flags
    set category   = 'Activation',
