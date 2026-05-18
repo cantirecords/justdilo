@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { Trash2, Clock, ChevronDown, Pencil, Plus, Check, MoreHorizontal, MessageCircle } from "lucide-react";
 import { format, isToday, isTomorrow, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
+import { useFeature } from "@/lib/features";
 import { CATEGORY_CONFIG } from "@/lib/categories";
 import { detectCategory } from "@/lib/detectCategory";
 import ProgressRing from "./ProgressRing";
@@ -220,6 +221,7 @@ export default function TaskCard({ groupName, tasks, onUpdate, onDelete, onAddTa
 const SWIPE_REVEAL = 88; // px — 2 action buttons × 44px each
 
 function Row({ task, onUpdate, onDelete, currentUserId }: { task: Task } & Omit<Props, "tasks" | "groupName" | "onAddTask" | "onBatchUpdate" | "onBatchDelete">) {
+  const taskDetailEnabled = useFeature("task_detail_drawer");
   const [actionsOpen, setActionsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -313,7 +315,7 @@ function Row({ task, onUpdate, onDelete, currentUserId }: { task: Task } & Omit<
                 +{assignees.length - 2}
               </span>
             )}
-            {task.org_id && (
+            {task.org_id && taskDetailEnabled && (
               <button
                 onClick={(e) => { e.stopPropagation(); setDetailOpen(true); }}
                 className="shrink-0 text-muted-foreground/40 hover:text-foreground transition"
