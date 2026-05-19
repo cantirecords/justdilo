@@ -303,24 +303,6 @@ function Row({ task, onUpdate, onDelete, currentUserId }: { task: Task } & Omit<
               {task.title}
             </span>
 
-            {task.org_id && assignees.length === 0 && (
-              <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-muted text-muted-foreground/60">
-                @?
-              </span>
-            )}
-            {assignees.slice(0, 2).map((a) => {
-              const name = a.profile?.nickname || a.profile?.email?.split("@")[0] || "?";
-              return (
-                <span key={a.user_id} className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                  @{name}
-                </span>
-              );
-            })}
-            {assignees.length > 2 && (
-              <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-md font-medium bg-muted text-muted-foreground">
-                +{assignees.length - 2}
-              </span>
-            )}
             {task.org_id && taskDetailEnabled && (
               <button
                 onClick={(e) => { e.stopPropagation(); setDetailOpen(true); }}
@@ -353,6 +335,13 @@ function Row({ task, onUpdate, onDelete, currentUserId }: { task: Task } & Omit<
             )}
 
           </div>
+
+          {assignees.length > 0 && (
+            <p className="ml-[34px] text-[10px] text-muted-foreground/50 mt-0.5 leading-none truncate">
+              → {assignees.slice(0, 2).map((a) => a.profile?.nickname || a.profile?.email?.split("@")[0] || "?").join(", ")}
+              {assignees.length > 2 ? ` +${assignees.length - 2}` : ""}
+            </p>
+          )}
 
           {expanded && hasNote && (
             <div className="ml-8 mt-1.5 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2 leading-relaxed">

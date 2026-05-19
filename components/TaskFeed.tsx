@@ -16,7 +16,7 @@ import TaskCard from "./TaskCard";
 import TaskEditModal from "./TaskEditModal";
 import ProgressRing from "./ProgressRing";
 import SmartInsights from "./SmartInsights";
-import type { Task } from "@/lib/types";
+import type { Task, TaskAssignee } from "@/lib/types";
 
 type SubView = "list" | "focus" | "ideas" | "stats";
 type Bucket = "Overdue" | "Today" | "Tomorrow" | "Upcoming" | "Someday";
@@ -490,6 +490,28 @@ function focusFormatDue(due: string): string {
   return format(d, "EEE MMM d") + timeStr;
 }
 
+function resolveAssignees(task: Task): TaskAssignee[] {
+  return task.assignees?.length
+    ? task.assignees
+    : task.assigned_to
+    ? [{ user_id: task.assigned_to_id ?? "", profile: task.assigned_to }]
+    : [];
+}
+
+function AssigneeLine({ task }: { task: Task }) {
+  const assignees = resolveAssignees(task);
+  if (!assignees.length) return null;
+  const names = assignees
+    .slice(0, 2)
+    .map((a) => a.profile?.nickname || a.profile?.email?.split("@")[0] || "?");
+  const extra = assignees.length > 2 ? ` +${assignees.length - 2}` : "";
+  return (
+    <p className="ml-[34px] text-[10px] text-muted-foreground/50 mt-0.5 leading-none truncate">
+      → {names.join(", ")}{extra}
+    </p>
+  );
+}
+
 // ── Focus Row (individual / overdue tasks) ────────────────────────────────────
 
 function FocusRow({
@@ -669,6 +691,8 @@ function FocusRow({
             </div>
           )}
 
+          <AssigneeLine task={task} />
+
           {/* Expanded note */}
           {expanded && hasNote && (
             <div className="ml-8 mt-1.5 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2 leading-relaxed">
@@ -846,6 +870,8 @@ function GroupSubRow({
               </button>
             )}
           </div>
+
+          <AssigneeLine task={task} />
 
           {expanded && hasNote && (
             <div className="ml-8 mt-1.5 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2 leading-relaxed">
