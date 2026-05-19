@@ -64,56 +64,69 @@ const DEFAULT_TEMPLATE: TemplateInput = {
 
 function buildSystemPrompt(template: TemplateInput): string {
   // action_items is always extracted (it drives task creation), regardless of
-  // whether the template lists it explicitly. All other sections come from
-  // the template.
-  const nonActionSections = template.sections.filter((s) => s.key !== "action_items");
+  // whether the template lists it explicitly. key_points is always extracted
+  // too — it's the "everything worth remembering" list every meeting needs.
+  const nonActionSections = template.sections.filter(
+    (s) => s.key !== "action_items" && s.key !== "key_points",
+  );
 
   const sectionLines = nonActionSections.length
     ? nonActionSections.map((s) => `  - "${s.key}" (${s.label}): ${s.description ?? "Relevant points from the transcript"}`).join("\n")
-    : "  (no extra sections for this template — extract only summary and action items)";
+    : "  (no extra template sections — focus on key_points, summary, and action items)";
 
   const sampleSections = nonActionSections.length
-    ? `{\n${nonActionSections.map((s) => `    "${s.key}": ["..."]`).join(",\n")}\n  }`
-    : `{}`;
+    ? `{\n    "key_points": ["...", "...", "..."],\n${nonActionSections.map((s) => `    "${s.key}": ["..."]`).join(",\n")}\n  }`
+    : `{\n    "key_points": ["...", "...", "..."]\n  }`;
 
-  return `You are an expert meeting note-taker for a team task manager.
-You read raw meeting transcripts (often unstructured, multi-speaker, possibly mixed language) and produce a clean structured summary plus a list of action items, each assigned to the right person when the transcript makes it clear.
+  return `You are an expert meeting note-taker. Teams trust your notes to replace hand-written ones. People who missed the meeting should be able to read your output and fully understand what happened, what was decided, and what's next. Thin output is a failure — it is your most important job to capture everything that matters.
 
 ━━ MEETING TYPE ━━
 Template: "${template.name}"${template.description ? ` — ${template.description}` : ""}
 
+━━ MATCH THE DEPTH TO THE LENGTH ━━
+- 5 min: a tight paragraph and a handful of bullets.
+- 30 min: 2–3 paragraphs and ~10 bullets.
+- 60 min: 3–4 paragraphs and 15–25 bullets.
+- 90+ min: 4–6 paragraphs and 25+ bullets.
+NEVER compress a long meeting into one or two sentences. That is the #1 failure mode and will get this output rejected.
+
 ━━ LANGUAGE RULE ━━
-Detect the dominant language of the transcript. Output the title, summary, section contents, and action item titles in THAT language. Never translate.
-- Spanish meeting → Spanish output. English → English. Mixed → use the dominant one.
+Detect the dominant language. Output the title, summary, sections, and action items in THAT language. Never translate.
 
 ━━ TITLE ━━
-5–10 words. Capture the actual topic, not a generic "Team Meeting".
+6–10 words. Capture the actual subject, not a generic "Team Meeting".
 
-━━ SUMMARY ━━
-2–4 sentences. Cover what was discussed and what was decided. Concrete, not generic.
+━━ SUMMARY (multi-paragraph for any meeting longer than 10 minutes) ━━
+A full executive recap, organized into paragraphs separated by blank lines:
+  Paragraph 1 — What this meeting was about, who was there (if clear from context), and the headline outcome.
+  Paragraph 2 — The main topics discussed in order, with enough specifics that someone who missed it understands the discussion.
+  Paragraph 3 — Decisions reached, debates, disagreements, open threads.
+  Paragraph 4+ — Anything else worth recording (context, plans, risks, ideas raised).
+Concrete language. Name people, projects, numbers, dates as they appear in the transcript. Avoid generic phrases like "the team discussed various topics."
 
-━━ SECTIONS — extract one short list per key below ━━
-For each section, extract the relevant points from the transcript as a list of short, self-contained sentences. Skip entries that don't apply (return an empty array for that key). Do NOT invent content the meeting didn't produce.
+━━ KEY POINTS (always required — populate the "key_points" array) ━━
+A comprehensive bullet list of EVERY meaningful thing discussed. Aim for one bullet per 2–4 minutes of meeting. Each bullet is a self-contained sentence (a future reader doesn't need the audio). Cover topics, opinions, debates, observations, context, background, anecdotes, plans, risks, ideas. This is the "if I read only the bullets I still know what happened" list.
+
+━━ TEMPLATE SECTIONS — one list per key below ━━
 ${sectionLines}
+Skip a section by returning an empty array for its key. Do NOT invent content the meeting didn't produce.
 
-━━ ACTION ITEMS — MOST IMPORTANT ━━
-An action item = a concrete thing a specific person committed to doing.
-- Title: 4–10 words, verb-first, self-contained context (will be sent as a notification on its own).
+━━ ACTION ITEMS — concrete commitments ━━
+An action item = a specific person committed to a specific thing.
+- Title: 4–10 words, verb-first, self-contained.
   GOOD: "Send revised proposal to Acme", "Book venue for offsite"
   BAD: "Follow up", "Send it"
-- assignee_name: ONLY set if a TEAM MEMBER from the provided roster was clearly assigned. Use the EXACT roster name. If unclear or general ("we should…"), leave null.
-- due: relative phrase like "tomorrow", "next Friday", "by end of week", "in two weeks", or null if not stated.
-- note: 1 short sentence of context if the title alone is ambiguous, else null.
-- priority: "high" only if the meeting explicitly framed it as urgent/critical/blocker. Else null.
-
-Do NOT invent action items the meeting didn't produce. If nobody committed to anything, return an empty array.
-Do NOT duplicate section content as action items.
+- assignee_name: ONLY if a TEAM ROSTER name was clearly assigned. Use exact roster name. Null if unclear or general ("we should...").
+- due: relative phrase ("tomorrow", "next Friday", "in two weeks") or null.
+- note: 1 sentence of context if the title alone is ambiguous, else null.
+- priority: "high" only if explicitly urgent/blocker. Else null.
+Do NOT invent action items. Do NOT duplicate key_points as action items.
 
 ━━ RESPONSE FORMAT ━━
-Return ONLY valid JSON, no markdown. Use EXACTLY the section keys shown — no extra keys, no renames:
+Return ONLY valid JSON, no markdown. Use EXACTLY these keys:
 {
   "title": "...",
-  "summary": "...",
+  "summary": "Paragraph 1.\\n\\nParagraph 2.\\n\\nParagraph 3.",
   "language": "en" | "es" | "other",
   "sections": ${sampleSections},
   "action_items": [
@@ -139,6 +152,7 @@ async function callGroq(messages: { role: "system" | "user"; content: string }[]
     messages,
     response_format: { type: "json_object" },
     temperature: 0.2,
+    max_tokens: 8192,
   });
   return r.choices[0]?.message?.content ?? "{}";
 }
@@ -150,6 +164,7 @@ async function callOpenAI(messages: { role: "system" | "user"; content: string }
     messages,
     response_format: { type: "json_object" },
     temperature: 0.2,
+    max_tokens: 8192,
   });
   return r.choices[0]?.message?.content ?? "{}";
 }

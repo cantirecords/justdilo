@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
-import { X, ChevronDown, Clock, Users, Calendar } from "lucide-react";
+import { X, ChevronDown, Clock, Users, Calendar, Sparkles } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import type { Meeting } from "@/lib/types";
 
 function formatDuration(seconds: number | null | undefined): string {
@@ -24,11 +25,14 @@ type Props = {
   onClose: () => void;
   onDelete?: (id: string) => void;
   onContinue?: (meeting: Meeting) => void;
+  onUpdate?: (meeting: Meeting) => void;
 };
 
-export default function MeetingDetailDrawer({ meeting, onClose, onDelete, onContinue }: Props) {
+export default function MeetingDetailDrawer({ meeting: initialMeeting, onClose, onDelete, onContinue, onUpdate }: Props) {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [meeting, setMeeting] = useState(initialMeeting);
 
   async function handleDelete() {
     if (!confirm("Delete this meeting? This can't be undone.")) return;
@@ -39,6 +43,25 @@ export default function MeetingDetailDrawer({ meeting, onClose, onDelete, onCont
       onClose();
     } catch {
       setDeleting(false);
+    }
+  }
+
+  async function handleRegenerate() {
+    setRegenerating(true);
+    try {
+      const res = await fetch(`/api/meetings/${meeting.id}/regenerate`, { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error || "Couldn't regenerate notes");
+        return;
+      }
+      setMeeting(json.meeting);
+      onUpdate?.(json.meeting);
+      toast.success("Notes regenerated");
+    } catch {
+      toast.error("Couldn't regenerate notes");
+    } finally {
+      setRegenerating(false);
     }
   }
 
@@ -97,7 +120,7 @@ export default function MeetingDetailDrawer({ meeting, onClose, onDelete, onCont
           {meeting.summary && (
             <div>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 mb-1.5">Summary</p>
-              <p className="text-sm text-foreground/80 leading-relaxed">{meeting.summary}</p>
+              <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">{meeting.summary}</p>
             </div>
           )}
 
@@ -187,23 +210,30 @@ export default function MeetingDetailDrawer({ meeting, onClose, onDelete, onCont
           )}
 
           {/* Actions */}
-          <div className="flex gap-2 pt-1">
+          <div className="flex gap-2 pt-1 flex-wrap">
+            {meeting.transcript && (
+              <button
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                className="flex-1 min-w-[140px] py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+              >
+                <Sparkles className={cn("w-3.5 h-3.5", regenerating && "animate-pulse")} />
+                {regenerating ? "Regenerating…" : "Regenerate notes"}
+              </button>
+            )}
             {onContinue && (
               <button
                 onClick={() => onContinue(meeting)}
-                className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition"
+                disabled={regenerating}
+                className="flex-1 min-w-[140px] py-2.5 rounded-xl border border-border text-sm font-medium hover:bg-muted transition disabled:opacity-50"
               >
                 Continue meeting
               </button>
             )}
             <button
               onClick={handleDelete}
-              disabled={deleting}
-              className={cn(
-                "py-2.5 rounded-xl text-sm font-medium transition",
-                onContinue ? "px-4" : "flex-1",
-                "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 disabled:opacity-50",
-              )}
+              disabled={deleting || regenerating}
+              className="py-2.5 px-4 rounded-xl text-sm font-medium transition text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 disabled:opacity-50"
             >
               {deleting ? "Deleting…" : "Delete"}
             </button>

@@ -143,6 +143,7 @@ export default function MeetingsView() {
           onClose={() => setSelected(null)}
           onDelete={handleDelete}
           onContinue={handleContinue}
+          onUpdate={(m) => setMeetings((prev) => prev.map((p) => (p.id === m.id ? m : p)))}
         />
       )}
     </>
