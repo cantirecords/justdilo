@@ -16,7 +16,8 @@ import TaskCard from "./TaskCard";
 import TaskEditModal from "./TaskEditModal";
 import ProgressRing from "./ProgressRing";
 import SmartInsights from "./SmartInsights";
-import type { Task, TaskAssignee } from "@/lib/types";
+import AssigneeInfo from "./AssigneeInfo";
+import type { Task } from "@/lib/types";
 
 type SubView = "list" | "focus" | "ideas" | "stats";
 type Bucket = "Overdue" | "Today" | "Tomorrow" | "Upcoming" | "Someday";
@@ -190,7 +191,7 @@ function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatch
 
 const PRIORITY_ORDER = { high: 0, med: 1, low: 2 } as const;
 
-function FocusView({ tasks, onUpdate, onDelete }: Props) {
+function FocusView({ tasks, onUpdate, onDelete, currentUserId }: Props) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
@@ -370,6 +371,7 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
                 isOverdue
                 now={now}
                 index={i}
+                currentUserId={currentUserId}
               />
             ) : (
               <FocusRow
@@ -380,6 +382,7 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
                 overdue
                 now={now}
                 index={i}
+                currentUserId={currentUserId}
               />
             )
           )}
@@ -402,6 +405,7 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
                 onDelete={onDelete}
                 now={now}
                 index={overdue.length + i}
+                currentUserId={currentUserId}
               />
             ) : (
               <FocusRow
@@ -411,6 +415,7 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
                 onDelete={onDelete}
                 now={now}
                 index={overdue.length + i}
+                currentUserId={currentUserId}
               />
             )
           )}
@@ -434,6 +439,7 @@ function FocusView({ tasks, onUpdate, onDelete }: Props) {
               onDelete={onDelete}
               now={now}
               index={overdue.length + todayItems.length + i}
+              currentUserId={currentUserId}
             />
           ))}
         </div>
@@ -490,28 +496,6 @@ function focusFormatDue(due: string): string {
   return format(d, "EEE MMM d") + timeStr;
 }
 
-function resolveAssignees(task: Task): TaskAssignee[] {
-  return task.assignees?.length
-    ? task.assignees
-    : task.assigned_to
-    ? [{ user_id: task.assigned_to_id ?? "", profile: task.assigned_to }]
-    : [];
-}
-
-function AssigneeLine({ task }: { task: Task }) {
-  const assignees = resolveAssignees(task);
-  if (!assignees.length) return null;
-  const names = assignees
-    .slice(0, 2)
-    .map((a) => a.profile?.nickname || a.profile?.email?.split("@")[0] || "?");
-  const extra = assignees.length > 2 ? ` +${assignees.length - 2}` : "";
-  return (
-    <p className="ml-[34px] text-[10px] text-muted-foreground/50 mt-0.5 leading-none truncate">
-      → {names.join(", ")}{extra}
-    </p>
-  );
-}
-
 // ── Focus Row (individual / overdue tasks) ────────────────────────────────────
 
 function FocusRow({
@@ -521,6 +505,7 @@ function FocusRow({
   overdue = false,
   now,
   index = 0,
+  currentUserId,
 }: {
   task: Task;
   onUpdate: (id: string, patch: Partial<Task>) => void;
@@ -528,6 +513,7 @@ function FocusRow({
   overdue?: boolean;
   now: Date;
   index?: number;
+  currentUserId?: string;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -691,7 +677,7 @@ function FocusRow({
             </div>
           )}
 
-          <AssigneeLine task={task} />
+          <AssigneeInfo task={task} currentUserId={currentUserId} />
 
           {/* Expanded note */}
           {expanded && hasNote && (
@@ -721,12 +707,14 @@ function GroupSubRow({
   now,
   onUpdate,
   onDelete,
+  currentUserId,
 }: {
   task: Task;
   isNext: boolean;
   now: Date;
   onUpdate: (id: string, patch: Partial<Task>) => void;
   onDelete: (id: string) => void;
+  currentUserId?: string;
 }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -871,7 +859,7 @@ function GroupSubRow({
             )}
           </div>
 
-          <AssigneeLine task={task} />
+          <AssigneeInfo task={task} currentUserId={currentUserId} />
 
           {expanded && hasNote && (
             <div className="ml-8 mt-1.5 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2 leading-relaxed">
@@ -902,6 +890,7 @@ function FocusGroupCard({
   isOverdue = false,
   now,
   index = 0,
+  currentUserId,
 }: {
   groupName: string;
   tasks: Task[];
@@ -910,6 +899,7 @@ function FocusGroupCard({
   isOverdue?: boolean;
   now: Date;
   index?: number;
+  currentUserId?: string;
 }) {
   const doneCount = tasks.filter((t) => t.completed).length;
   const total = tasks.length;
@@ -1011,6 +1001,7 @@ function FocusGroupCard({
             now={now}
             onUpdate={onUpdate}
             onDelete={onDelete}
+            currentUserId={currentUserId}
           />
         ))}
       </ul>
@@ -1095,7 +1086,7 @@ export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatch
         )
       )}
       {subView === "focus" && (
-        <FocusView tasks={dedupedTasks} onUpdate={onUpdate} onDelete={onDelete} />
+        <FocusView tasks={dedupedTasks} onUpdate={onUpdate} onDelete={onDelete} currentUserId={currentUserId} />
       )}
     </div>
   );

@@ -12,7 +12,8 @@ import RescheduleMenu from "./RescheduleMenu";
 import TaskEditModal from "./TaskEditModal";
 import TaskDetailDrawer from "./TaskDetailDrawer";
 import GroupBatchModal from "./GroupBatchModal";
-import type { Task, TaskAssignee } from "@/lib/types";
+import AssigneeInfo from "./AssigneeInfo";
+import type { Task } from "@/lib/types";
 
 type Props = {
   groupName: string;
@@ -229,13 +230,6 @@ function Row({ task, onUpdate, onDelete, currentUserId }: { task: Task } & Omit<
   const touchStartX = useRef(0);
   const hasNote = Boolean(task.summary?.trim());
 
-  // Resolve assignees: prefer task_assignees array, fall back to legacy assigned_to
-  const assignees: TaskAssignee[] = task.assignees?.length
-    ? task.assignees
-    : task.assigned_to
-    ? [{ user_id: task.assigned_to_id ?? "", profile: task.assigned_to }]
-    : [];
-
   function handleTouchStart(e: React.TouchEvent) {
     touchStartX.current = e.touches[0].clientX;
   }
@@ -336,12 +330,7 @@ function Row({ task, onUpdate, onDelete, currentUserId }: { task: Task } & Omit<
 
           </div>
 
-          {assignees.length > 0 && (
-            <p className="ml-[34px] text-[10px] text-muted-foreground/50 mt-0.5 leading-none truncate">
-              → {assignees.slice(0, 2).map((a) => a.profile?.nickname || a.profile?.email?.split("@")[0] || "?").join(", ")}
-              {assignees.length > 2 ? ` +${assignees.length - 2}` : ""}
-            </p>
-          )}
+          <AssigneeInfo task={task} currentUserId={currentUserId} />
 
           {expanded && hasNote && (
             <div className="ml-8 mt-1.5 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2 leading-relaxed">
