@@ -99,7 +99,7 @@ insert into public.meeting_templates (user_id, name, slug, description, sections
    true)
 on conflict do nothing;
 
--- ─── Register feature flag (admin-only first) ───────────────────────────────
+-- ─── Register feature flags (admin-only first) ─────────────────────────────
 insert into public.feature_flags (key, description, rollout, category, how_to_use, impact, location) values
   ('meeting_templates',
    'Pick a meeting type before recording — AI extracts type-specific sections',
@@ -107,7 +107,15 @@ insert into public.feature_flags (key, description, rollout, category, how_to_us
    'TEAM',
    'When starting a new meeting, pick a template from the dropdown (General, Marketing, Design Review, 1:1, Standup, or your own custom). The AI will extract sections specific to that meeting type (e.g. for Marketing: campaigns, ideas, channels) instead of just generic decisions/action items. Tap "+ New template" in the picker to create your own with custom section names.',
    'Makes meeting summaries dramatically more useful — instead of generic output, you get sections relevant to the meeting type. Custom templates let teams capture exactly the info they care about (e.g. BTV streaming: on-air issues, content schedule, technical bugs).',
-   '+ button → Meeting → Template picker shown above Start button')
+   '+ button → Meeting → Template picker shown above Start button'),
+
+  ('regenerate_meeting_notes',
+   'Re-run AI summarization on an existing meeting without re-recording',
+   'admin',
+   'TEAM',
+   'Open any past meeting from the Meetings tab. A "✨ Regenerate notes" button appears next to Continue/Delete. Tap it to re-run the AI on the saved transcript — useful when the original output was too thin, or after you''ve improved the prompt/template. Tasks already created from the meeting are NOT touched (you may have edited them).',
+   'Lets you fix bad past summaries without losing the meeting. The transcript persists after recording, so regeneration is fast (no re-upload, no re-transcription) — only the LLM step runs again. Especially valuable for long meetings where the first summary missed important details.',
+   'Past meeting → drawer → ✨ Regenerate notes button')
 on conflict (key) do nothing;
 
 -- ─────────────────────────────────────────────────────────────────────────────

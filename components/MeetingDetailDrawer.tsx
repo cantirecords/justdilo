@@ -4,6 +4,7 @@ import { X, ChevronDown, Clock, Users, Calendar, Sparkles } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useFeature } from "@/lib/features";
 import type { Meeting } from "@/lib/types";
 
 function formatDuration(seconds: number | null | undefined): string {
@@ -33,6 +34,7 @@ export default function MeetingDetailDrawer({ meeting: initialMeeting, onClose, 
   const [deleting, setDeleting] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [meeting, setMeeting] = useState(initialMeeting);
+  const regenerateEnabled = useFeature("regenerate_meeting_notes");
 
   async function handleDelete() {
     if (!confirm("Delete this meeting? This can't be undone.")) return;
@@ -211,7 +213,7 @@ export default function MeetingDetailDrawer({ meeting: initialMeeting, onClose, 
 
           {/* Actions */}
           <div className="flex gap-2 pt-1 flex-wrap">
-            {meeting.transcript && (
+            {regenerateEnabled && meeting.transcript && (
               <button
                 onClick={handleRegenerate}
                 disabled={regenerating}
