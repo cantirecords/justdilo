@@ -3,12 +3,14 @@ import { createSupabaseServer } from "@/lib/supabase/server";
 
 export async function GET() {
   const supabase = await createSupabaseServer();
+  // RLS handles visibility: own tasks + org tasks the user is a member of
+  // "assignees" alias matches the Task type's assignees field
+  const taskSelect = `*, assignees:task_assignees(user_id, profile:profiles!user_id(nickname, email))`;
   let { data, error } = await supabase
     .from("tasks")
-    .select("*")
-    .is("org_id", null)
+    .select(taskSelect)
     .order("created_at", { ascending: false });
-  // Schema cache fallback — org_id column may not be in cache yet
+  // Schema cache fallback
   if (error) {
     ({ data, error } = await supabase.from("tasks").select("*").order("created_at", { ascending: false }));
   }

@@ -109,3 +109,17 @@ insert into public.feature_flags (key, description, rollout, category, how_to_us
    'Makes meeting summaries dramatically more useful — instead of generic output, you get sections relevant to the meeting type. Custom templates let teams capture exactly the info they care about (e.g. BTV streaming: on-air issues, content schedule, technical bugs).',
    '+ button → Meeting → Template picker shown above Start button')
 on conflict (key) do nothing;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Backfill: grant orgs_enabled to all existing active org members.
+-- Users added before this fix never had orgs_enabled set, so they couldn't
+-- see org tasks or org UI. The API now sets this automatically on new invites.
+-- ─────────────────────────────────────────────────────────────────────────────
+update public.profiles p
+set orgs_enabled = true
+where exists (
+  select 1 from public.organization_members om
+  where om.user_id = p.id
+    and om.status = 'active'
+)
+and (p.orgs_enabled is null or p.orgs_enabled = false);

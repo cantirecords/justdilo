@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase/server";
+import { createSupabaseAdmin } from "@/lib/supabase/admin";
 
 async function getEnabledUser(supabase: Awaited<ReturnType<typeof createSupabaseServer>>) {
   const { data: { user } } = await supabase.auth.getUser();
@@ -62,6 +63,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Grant org access to the invited user if they already have an account.
+  // Without this, their page.tsx skips the org data block entirely.
+  if (existingProfile?.id) {
+    const admin = createSupabaseAdmin();
+    await admin.from("profiles").update({ orgs_enabled: true }).eq("id", existingProfile.id);
+  }
+
   return NextResponse.json({ member: data }, { status: 201 });
 }
 
