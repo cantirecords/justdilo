@@ -17,6 +17,7 @@ import TaskEditModal from "./TaskEditModal";
 import ProgressRing from "./ProgressRing";
 import SmartInsights from "./SmartInsights";
 import AssigneeInfo from "./AssigneeInfo";
+import { useFeature } from "@/lib/features";
 import type { Task } from "@/lib/types";
 
 type SubView = "list" | "focus" | "ideas" | "stats";
@@ -93,7 +94,9 @@ function ListView({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatch
         if (t.due_date && isToday(parseISO(t.due_date))) {
           (active["Today"][key] ||= []).push(t);
         } else {
-          const completedAt = parseISO(t.created_at);
+          // completed_at is stamped by a DB trigger; created_at is the fallback for
+          // rows completed before migration 0015 added the column
+          const completedAt = parseISO(t.completed_at ?? t.created_at);
           const bucket: CompletedBucket = isToday(completedAt) ? "Completed Today" : "Completed This Week";
           (completed[bucket][key] ||= []).push(t);
         }
@@ -1022,13 +1025,25 @@ const SUB_VIEWS: { id: SubView; label: string; icon: React.ElementType }[] = [
 const LS_SUBVIEW_KEY = "justdilo:subview";
 
 export default function TaskFeed({ tasks, onUpdate, onDelete, onAddTask, onBatchUpdate, onBatchDelete, currentUserId }: Props) {
+  const alwaysOpenFocus = useFeature("always_open_focus");
   const [subView, setSubView] = useState<SubView>(() => {
     if (typeof window === "undefined") return "focus";
     const saved = localStorage.getItem(LS_SUBVIEW_KEY) as SubView | null;
-    // Defensive: if a stale "team" value is still in localStorage from older builds, drop it
-    if (!saved || (saved as string) === "team") return "focus";
+    // Defensive: stale values from older builds (e.g. "team") would render no view at all
+    if (!saved || !SUB_VIEWS.some((v) => v.id === saved)) return "focus";
     return saved;
   });
+
+  // When the flag is on, force Focus on every fresh mount (e.g. app reopen).
+  // Reason: the feature flag arrives via /api/features after first render, so we
+  // can't read it during useState init — apply it once it resolves.
+  const focusForcedRef = useRef(false);
+  useEffect(() => {
+    if (alwaysOpenFocus && !focusForcedRef.current) {
+      focusForcedRef.current = true;
+      setSubView("focus");
+    }
+  }, [alwaysOpenFocus]);
 
   // Deduplicate: within same group+title+due_date, keep only the first instance
   const dedupedTasks = useMemo(() => {

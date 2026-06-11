@@ -73,9 +73,11 @@ export default function TaskEditModal({ task, onSave, onClose }: Props) {
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [projectId, setProjectId] = useState<string | null>(task.project_id ?? null);
 
-  // Multi-select assignees — initialise from task.assignees or fallback to assigned_to_id
-  const initAssigneeIds = task.assignees?.map((a) => a.user_id).filter(Boolean) as string[]
-    ?? (task.assigned_to_id ? [task.assigned_to_id] : []);
+  // Multi-select assignees — initialise from task.assignees or fallback to assigned_to_id.
+  // Length check matters: an empty assignees array must still fall back (?? alone wouldn't).
+  const initAssigneeIds = task.assignees?.length
+    ? (task.assignees.map((a) => a.user_id).filter(Boolean) as string[])
+    : task.assigned_to_id ? [task.assigned_to_id] : [];
   const [assignedToIds, setAssignedToIds] = useState<string[]>(initAssigneeIds);
 
   useEffect(() => {

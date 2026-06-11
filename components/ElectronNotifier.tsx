@@ -24,7 +24,8 @@ export default function ElectronNotifier() {
       if (localStorage.getItem(storageKey)) return;
 
       try {
-        const res = await fetch(`/api/push/content?type=${type}`);
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const res = await fetch(`/api/push/content?type=${type}&tz=${encodeURIComponent(tz)}`);
         if (!res.ok) return;
         const { title, body } = await res.json();
         if (title && body) {

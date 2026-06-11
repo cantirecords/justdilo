@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import webpush from "web-push";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
-import { isToday, parseISO } from "date-fns";
+import { isAuthorizedCron } from "@/lib/cron-auth";
+import { isTodayInTz } from "@/lib/local-time";
+import { parseISO } from "date-fns";
 
 export const runtime = "nodejs";
 
@@ -18,9 +20,7 @@ export async function GET(req: Request) {
 
   const supabaseAdmin = createSupabaseAdmin();
   // Allow Vercel cron or manual trigger with secret header
-  const auth = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && auth !== `Bearer ${cronSecret}`) {
+  if (!isAuthorizedCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -42,7 +42,7 @@ export async function GET(req: Request) {
       .not("due_date", "is", null);
 
     const dueToday = (tasks ?? []).filter(
-      (t) => t.due_date && isToday(parseISO(t.due_date)),
+      (t) => t.due_date && isTodayInTz(parseISO(t.due_date), sub.timezone ?? "UTC"),
     );
     if (!dueToday.length) continue;
 

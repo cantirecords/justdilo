@@ -2,13 +2,18 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendPushToUser } from "@/lib/push";
 import { detectSpanish } from "@/lib/push-messages";
+import { isAuthorizedCron } from "@/lib/cron-auth";
 import { parseISO } from "date-fns";
 
 export const runtime = "nodejs";
 
 // Runs every 5 minutes. Sends a reminder push when now is within ±2.5 min
 // of (due_date - reminder_minutes). Sets reminded_at to prevent duplicates.
-export async function GET() {
+export async function GET(req: Request) {
+  if (!isAuthorizedCron(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const supabase = createSupabaseAdmin();
   const now = new Date();
 

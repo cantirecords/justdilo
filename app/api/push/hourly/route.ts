@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendPushToUser } from "@/lib/push";
 import { detectSpanish } from "@/lib/push-messages";
+import { isAuthorizedCron } from "@/lib/cron-auth";
+import { isLocalMidnightSentinel } from "@/lib/local-time";
 import { parseISO } from "date-fns";
 
 export const runtime = "nodejs";
@@ -13,7 +15,11 @@ function localHour(timezone: string): number {
   );
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!isAuthorizedCron(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const supabase = createSupabaseAdmin();
 
   const { data: subs } = await supabase
@@ -44,12 +50,13 @@ export async function GET() {
       .eq("completed", false)
       .not("due_date", "is", null);
 
-    // Find tasks due within the next ~60 minutes (not at midnight = 23:59)
+    // Find tasks due within the next ~60 minutes (not at midnight = 23:59).
+    // The 23:59 "no specific time" sentinel is on the USER's clock, so check it
+    // in their timezone — on a UTC server getHours() misses it for everyone else.
     // Skip tasks whose custom reminder already fired (reminded_at set) to avoid double-notifying
     const dueSoon = (tasks ?? []).filter((t) => {
       const due = parseISO(t.due_date);
-      const isMidnight = due.getHours() === 23 && due.getMinutes() === 59;
-      if (isMidnight) return false;
+      if (isLocalMidnightSentinel(due, timezone)) return false;
       if (t.reminder_minutes !== null && t.reminded_at !== null) return false;
       return due >= in55min && due <= in65min;
     });

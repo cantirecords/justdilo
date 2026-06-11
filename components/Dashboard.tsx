@@ -287,9 +287,10 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
     }
 
     if (intent === "COMPLETE_TASK" && json.completed_task_ids?.length) {
+      const completedAt = new Date().toISOString();
       setTasks((prev) =>
         prev.map((t) =>
-          json.completed_task_ids.includes(t.id) ? { ...t, completed: true } : t
+          json.completed_task_ids.includes(t.id) ? { ...t, completed: true, completed_at: completedAt } : t
         )
       );
       if (voiceOn) speak("Done.");
@@ -319,9 +320,18 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
     setTasks((prev) => [task, ...prev]);
   }
 
+  // The DB trigger stamps completed_at server-side; mirror it locally so the
+  // "Completed Today / This Week" buckets are right before realtime catches up.
+  function withCompletedAt(patch: Partial<Task>): Partial<Task> {
+    if (patch.completed === true) return { ...patch, completed_at: new Date().toISOString() };
+    if (patch.completed === false) return { ...patch, completed_at: null };
+    return patch;
+  }
+
   function updateTask(id: string, patch: Partial<Task>) {
     const previous = tasks.find((t) => t.id === id);
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    const local = withCompletedAt(patch);
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...local } : t)));
     start(async () => {
       const res = await fetch(`/api/tasks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
       if (!res.ok && previous) {
@@ -332,7 +342,8 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
   }
 
   function batchUpdateTasks(ids: string[], patch: Partial<Task>) {
-    setTasks((prev) => prev.map((t) => ids.includes(t.id) ? { ...t, ...patch } : t));
+    const local = withCompletedAt(patch);
+    setTasks((prev) => prev.map((t) => ids.includes(t.id) ? { ...t, ...local } : t));
     start(async () => {
       await Promise.all(ids.map((id) =>
         fetch(`/api/tasks/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }),
@@ -359,6 +370,7 @@ export default function Dashboard({ initialTasks, userEmail, userId, initialNick
               category: deleted.category,
               summary: deleted.summary,
               reminder_minutes: deleted.reminder_minutes,
+              recurring_type: deleted.recurring_type,
             }),
           });
           if (res.ok) {

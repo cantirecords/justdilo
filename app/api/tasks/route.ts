@@ -24,10 +24,12 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const { title, group_name, due_date, priority, category, org_id, assigned_to_id } = body;
+  // summary, reminder_minutes, recurring_type: sent by the delete-undo flow so a
+  // restored task keeps its notes, custom reminder, and recurrence.
+  const { title, group_name, due_date, priority, category, org_id, assigned_to_id, summary, reminder_minutes, recurring_type } = body;
   if (!title?.trim()) return NextResponse.json({ error: "title required" }, { status: 400 });
 
-  const row: Record<string, unknown> = { user_id: user.id, title: title.trim(), group_name: group_name ?? null, due_date: due_date ?? null, priority: priority ?? null, category: category ?? null, completed: false, org_id: org_id ?? null, assigned_to_id: assigned_to_id ?? null };
+  const row: Record<string, unknown> = { user_id: user.id, title: title.trim(), group_name: group_name ?? null, due_date: due_date ?? null, priority: priority ?? null, category: category ?? null, completed: false, org_id: org_id ?? null, assigned_to_id: assigned_to_id ?? null, summary: summary ?? null, reminder_minutes: reminder_minutes ?? null, recurring_type: recurring_type ?? null };
   let { data, error } = await supabase.from("tasks").insert(row).select().single();
   if (error?.message?.includes("schema cache")) {
     const { category: _c, ...safe } = row as any;

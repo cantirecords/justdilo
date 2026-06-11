@@ -3,6 +3,7 @@ import { createSupabaseServer } from "@/lib/supabase/server";
 import { extractTasks, resolveDue, transcribeAudio, answerQuestion, classifyFailure } from "@/lib/ai";
 import { getCorrections } from "@/lib/corrections";
 import { detectCategory } from "@/lib/detectCategory";
+import { buildNextOccurrence, normalizeRecurring } from "@/lib/recurrence";
 import type { Task } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -162,13 +163,15 @@ export async function POST(req: Request) {
   // ── Non-CREATE intents: editing existing tasks ────────────────────────────
 
   if (intent !== "CREATE_TASK") {
-    // Fetch recent open tasks for matching
+    // Fetch ALL open tasks for matching — no date cap, same as the dedup fetch
+    // below. Monthly recurring occurrences are created when the previous one
+    // is completed, so they routinely sit open longer than 30 days and a
+    // created_at cutoff made them unmatchable by voice.
     const { data: openTasks } = await supabase
       .from("tasks")
       .select("*")
       .eq("user_id", user.id)
-      .eq("completed", false)
-      .gte("created_at", new Date(Date.now() - 30 * 86400000).toISOString());
+      .eq("completed", false);
 
     const allTasks = (openTasks ?? []) as Task[];
     const keywords = result.target_task_keywords ?? [];
@@ -197,7 +200,12 @@ export async function POST(req: Request) {
       const patch: Partial<Task> = {};
       if (result.update_due) {
         const resolved = resolveDue(result.update_due, utcOffset, timezone);
-        if (resolved) patch.due_date = resolved.toISOString();
+        // Reschedule resets the reminder so a fresh notification fires for the
+        // new date — same behavior as the PATCH route.
+        if (resolved) {
+          patch.due_date = resolved.toISOString();
+          patch.reminded_at = null;
+        }
       }
       if (result.update_title) patch.title = result.update_title;
       if (result.update_priority) patch.priority = result.update_priority;
@@ -227,7 +235,16 @@ export async function POST(req: Request) {
       await Promise.all(ids.map((id) =>
         supabase.from("tasks").update({ completed: true }).eq("id", id).eq("user_id", user.id)
       ));
-      console.log("[process-voice] COMPLETE_TASK: completed %d tasks", ids.length);
+      // Recurring tasks completed by voice spawn their next occurrence, same
+      // as the PATCH route — otherwise the recurrence chain silently dies.
+      // matched only contains open tasks, so this can't double-spawn.
+      const nextOccurrences = matched
+        .map((t) => buildNextOccurrence(t))
+        .filter((row): row is Record<string, unknown> => row !== null);
+      if (nextOccurrences.length) {
+        await supabase.from("tasks").insert(nextOccurrences);
+      }
+      console.log("[process-voice] COMPLETE_TASK: completed %d tasks (%d recurring respawned)", ids.length, nextOccurrences.length);
       return NextResponse.json({ intent, transcript, updated_tasks: [], deleted_task_ids: [], completed_task_ids: ids, provider: aiProvider, timing });
     }
   }
@@ -256,11 +273,14 @@ export async function POST(req: Request) {
     user_id: string; capture_id: string | null; title: string; group_name: string;
     summary: string | null; due_date: string | null; priority: string | null;
     category: string | null; completed: boolean; org_id: string | null;
-    assigned_to_id: string | null; _memberUids: string[];
+    assigned_to_id: string | null; recurring_type: string | null; _memberUids: string[];
   };
 
   const rowsWithMeta: RowWithMeta[] = groups.flatMap((g) => {
     if (g.recurring) recurringGroups.push(`${g.name}: ${g.recurring}`);
+    // Persist the detected cadence — without recurring_type the task is a
+    // one-shot and completing it never spawns the next occurrence.
+    const recurringType = normalizeRecurring(g.recurring);
     const resolvedGroupName = normalizeGroupName(g.name ?? "General", existingGroups);
     // Resolve assignee_names[] → roster members
     const assigneeNames = (g.assignee_names ?? []) as string[];
@@ -288,6 +308,7 @@ export async function POST(req: Request) {
           group_name: resolvedGroupName, summary: note || g.summary || null,
           due_date, priority: g.priority ?? null, category, completed: false,
           org_id: orgIdForGroup, assigned_to_id: assignedToId,
+          recurring_type: recurringType,
           _memberUids: memberUids,
         };
       });

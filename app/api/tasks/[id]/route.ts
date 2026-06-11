@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabase/server";
-import { parseISO, addDays, addWeeks, addMonths } from "date-fns";
+import { buildNextOccurrence } from "@/lib/recurrence";
 
 const PATCHABLE = new Set([
   "title", "group_name", "summary", "due_date", "priority", "completed",
@@ -9,21 +9,22 @@ const PATCHABLE = new Set([
   "reminder_minutes", "reminded_at", "assigned_to_id", "org_id", "project_id",
 ]);
 
-function nextRecurringDue(dueISO: string, type: string): string {
-  const base = parseISO(dueISO);
-  let next: Date;
-  if (type === "daily")   next = addDays(base, 1);
-  else if (type === "weekly")  next = addWeeks(base, 1);
-  else                         next = addMonths(base, 1);
-  return next.toISOString();
-}
-
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const raw = await req.json();
   // assignee_ids and assignees are handled separately — strip before task update
   const { assignee_ids, assignees: _assignees, ...rest } = raw as any;
-  const body = Object.fromEntries(Object.entries(rest).filter(([k]) => PATCHABLE.has(k)));
+  const body: Record<string, any> = Object.fromEntries(
+    Object.entries(rest).filter(([k]) => PATCHABLE.has(k)),
+  );
+
+  // Reschedule resets the reminder so a fresh notification fires for the new date.
+  // Without this, postponing a task with a one-hour custom reminder would never
+  // notify again because reminded_at is still set from the old due_date.
+  if ("due_date" in body && !("reminded_at" in body)) {
+    body.reminded_at = null;
+  }
+
   const supabase = await createSupabaseServer();
 
   // Handle multi-assignee update (replace all assignees for this task)
@@ -41,6 +42,16 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ task: null });
   }
 
+  // Snapshot completion state before updating — the next occurrence must only
+  // spawn on the open → complete transition. Re-completing an already-done task
+  // (double-tap, retry, batch update) would otherwise insert duplicate
+  // occurrences, each one generating its own notifications.
+  let wasCompleted = false;
+  if (body.completed === true) {
+    const { data: prev } = await supabase.from("tasks").select("completed").eq("id", id).single();
+    wasCompleted = prev?.completed === true;
+  }
+
   let { data, error } = await supabase.from("tasks").update(body).eq("id", id).select().single();
   if (error?.message?.includes("schema cache")) {
     const safe = Object.fromEntries(Object.entries(body).filter(([k]) => k !== "category" && k !== "project_id"));
@@ -49,19 +60,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // When marking a recurring task complete, spawn the next occurrence
-  if (body.completed === true && data?.recurring_type && data?.due_date) {
-    const nextDue = nextRecurringDue(data.due_date, data.recurring_type);
-    const nextTask = {
-      user_id: data.user_id,
-      title: data.title,
-      group_name: data.group_name ?? null,
-      summary: data.summary ?? null,
-      priority: data.priority ?? null,
-      recurring_type: data.recurring_type,
-      due_date: nextDue,
-      completed: false,
-    };
-    await supabase.from("tasks").insert(nextTask);
+  if (body.completed === true && !wasCompleted && data) {
+    const nextTask = buildNextOccurrence(data);
+    if (nextTask) await supabase.from("tasks").insert(nextTask);
   }
 
   return NextResponse.json({ task: data });

@@ -2,12 +2,18 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
 import { sendPushToUser } from "@/lib/push";
 import { eveningLetter } from "@/lib/push-messages";
-import { isToday, parseISO } from "date-fns";
+import { isAuthorizedCron } from "@/lib/cron-auth";
+import { isTodayInTz } from "@/lib/local-time";
+import { parseISO } from "date-fns";
 
 export const runtime = "nodejs";
 
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!isAuthorizedCron(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const supabase = createSupabaseAdmin();
 
   const { data: subs } = await supabase
@@ -32,7 +38,7 @@ export async function GET() {
 
   let sent = 0;
 
-  for (const [userId] of userMap) {
+  for (const [userId, timezone] of userMap) {
     // No timezone filter — cron fires at 02 UTC which is evening across all
     // US zones (7pm PDT → 10pm EDT). All subscribed users get the evening push.
     const name = nicknameMap.get(userId) || null; // "" (skipped) → null
@@ -44,7 +50,7 @@ export async function GET() {
 
     const all = tasks ?? [];
 
-    const todayTasks = all.filter((t) => t.due_date && isToday(parseISO(t.due_date)));
+    const todayTasks = all.filter((t) => t.due_date && isTodayInTz(parseISO(t.due_date), timezone));
     const completedToday = todayTasks.filter((t) => t.completed).length;
 
     const openTasks = all

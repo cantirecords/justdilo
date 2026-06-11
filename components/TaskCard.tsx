@@ -8,7 +8,6 @@ import { CATEGORY_CONFIG } from "@/lib/categories";
 import { detectCategory } from "@/lib/detectCategory";
 import ProgressRing from "./ProgressRing";
 import CheckButton from "./CheckButton";
-import RescheduleMenu from "./RescheduleMenu";
 import TaskEditModal from "./TaskEditModal";
 import TaskDetailDrawer from "./TaskDetailDrawer";
 import GroupBatchModal from "./GroupBatchModal";

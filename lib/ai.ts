@@ -363,6 +363,45 @@ const WEEK_DAYS: [number, string[]][] = [
   [6, ["saturday", "sábado", "sabado"]],
 ];
 
+// Month names — English + Spanish (no accents folded).
+const MONTHS: [number, string[]][] = [
+  [0,  ["january", "enero"]],
+  [1,  ["february", "febrero"]],
+  [2,  ["march", "marzo"]],
+  [3,  ["april", "abril"]],
+  [4,  ["may", "mayo"]],
+  [5,  ["june", "junio"]],
+  [6,  ["july", "julio"]],
+  [7,  ["august", "agosto"]],
+  [8,  ["september", "septiembre", "setiembre"]],
+  [9,  ["october", "octubre"]],
+  [10, ["november", "noviembre"]],
+  [11, ["december", "diciembre"]],
+];
+
+// Find an explicit "<month> <day>" or "<day> [de] <month>" anywhere in the text.
+// Returns { month: 0-11, day: 1-31 } or null. Day is sanity-checked (1-31).
+// When several dates appear ("move May 3 to June 7"), the first one in the
+// text wins — not the first month in calendar order.
+function extractMonthDay(s: string): { month: number; day: number } | null {
+  let best: { month: number; day: number; index: number } | null = null;
+  for (const [idx, names] of MONTHS) {
+    for (const name of names) {
+      // English: "may 23", "may 23rd"
+      const enMatch = s.match(new RegExp(`\\b${name}\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i"));
+      // Spanish: "23 de mayo", "23 mayo"
+      const esMatch = s.match(new RegExp(`\\b(\\d{1,2})(?:\\s+de)?\\s+${name}\\b`, "i"));
+      for (const m of [enMatch, esMatch]) {
+        if (!m || m.index === undefined) continue;
+        const day = parseInt(m[1], 10);
+        if (day < 1 || day > 31) continue;
+        if (!best || m.index < best.index) best = { month: idx, day, index: m.index };
+      }
+    }
+  }
+  return best ? { month: best.month, day: best.day } : null;
+}
+
 function extractTime(s: string): { hours: number; minutes: number } | null {
   // Explicit 12h AM/PM — highest priority
   const t12 = s.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
@@ -451,8 +490,10 @@ export function resolveDue(
   const hasWeekRef = lower.includes("next week") || lower.includes("this week") ||
     lower.includes("próxima semana") || lower.includes("proxima semana") ||
     lower.includes("esta semana");
+  // Checked early: "May 23 at 3pm" must NOT fall into the bare-time→today branch.
+  const md = extractMonthDay(lower);
 
-  if (hasToday || (time && !hasTomorrow && !hasDayName && !hasWeekRef &&
+  if (hasToday || (time && !md && !hasTomorrow && !hasDayName && !hasWeekRef &&
       !lower.includes("yesterday") && !lower.includes("ayer"))) {
     return applyTime(localTodayMidnight, time ?? { hours: 9, minutes: 0 });
   }
@@ -464,6 +505,20 @@ export function resolveDue(
   }
   if (lower.includes("this week") || lower.includes("esta semana")) {
     return applyTime(new Date(localTodayMidnight.getTime() + 3 * 86_400_000), time);
+  }
+
+  // Explicit "<month> <day>" beats a day name when both are present.
+  // Example: "Friday May 23" — user wrote both, but the calendar date is unambiguous.
+  // Pick the next occurrence of that month/day at or after today.
+  if (md) {
+    let year = localNow.getUTCFullYear();
+    const localTodayMs = localTodayMidnight.getTime();
+    const candidate = new Date(Date.UTC(year, md.month, md.day));
+    if (candidate.getTime() < localTodayMs) {
+      year += 1;
+    }
+    const target = new Date(Date.UTC(year, md.month, md.day));
+    return applyTime(target, time);
   }
 
   for (const [dayNum, names] of WEEK_DAYS) {

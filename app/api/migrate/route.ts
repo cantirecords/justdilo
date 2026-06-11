@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
+import { createSupabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-// One-time migration runner — add new columns safely via DB function
+const ADMIN_EMAIL = "yorohn@duck.com";
+
+// One-time migration runner — add new columns safely via DB function.
+// Runs DDL with the service-role key, so it must never be publicly callable.
 export async function POST() {
+  const userClient = await createSupabaseServer();
+  const { data: { user } } = await userClient.auth.getUser();
+  if (!user || user.email !== ADMIN_EMAIL) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
   const supabase = createSupabaseAdmin();
 
   // Check if category column already exists
