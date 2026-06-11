@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
-import { sendPushToUser } from "@/lib/push";
+import { sendPushToUser, pickUserTimezones } from "@/lib/push";
 import { detectSpanish } from "@/lib/push-messages";
 import { isAuthorizedCron } from "@/lib/cron-auth";
 import { parseISO } from "date-fns";
@@ -31,10 +31,8 @@ export async function GET(req: Request) {
   const { data: subs } = await supabase
     .from("push_subscriptions")
     .select("user_id, timezone");
-  const tzMap = new Map<string, string>();
-  for (const s of subs ?? []) {
-    if (!tzMap.has(s.user_id)) tzMap.set(s.user_id, s.timezone ?? "UTC");
-  }
+  // Prefer a real device timezone over legacy UTC rows
+  const tzMap = pickUserTimezones(subs ?? []);
 
   let sent = 0;
   // Cron now runs every 30 min, so widen window to ±15 min to avoid missing reminders.

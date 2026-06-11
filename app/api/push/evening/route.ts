@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdmin } from "@/lib/supabase/admin";
-import { sendPushToUser } from "@/lib/push";
+import { sendPushToUser, pickUserTimezones } from "@/lib/push";
 import { eveningLetter } from "@/lib/push-messages";
 import { isAuthorizedCron } from "@/lib/cron-auth";
 import { isTodayInTz } from "@/lib/local-time";
@@ -20,11 +20,8 @@ export async function GET(req: Request) {
     .from("push_subscriptions").select("user_id, timezone");
   if (!subs?.length) return NextResponse.json({ sent: 0, subs: 0, reason: "no_subscriptions" });
 
-  // Dedupe users, keeping the first timezone seen per user
-  const userMap = new Map<string, string>();
-  for (const s of subs) {
-    if (!userMap.has(s.user_id)) userMap.set(s.user_id, s.timezone ?? "UTC");
-  }
+  // Dedupe users, preferring a real device timezone over legacy UTC rows
+  const userMap = pickUserTimezones(subs);
 
   // Batch-fetch nicknames for all users in one query
   const userIds = [...userMap.keys()];

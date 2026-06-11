@@ -1,6 +1,22 @@
 import webpush from "web-push";
 import { createSupabaseAdmin } from "./supabase/admin";
 
+// One timezone per user across all their device subscriptions. Old rows
+// predate the timezone column and read null/UTC — prefer any row with a real
+// device timezone so notification times don't render in UTC.
+export function pickUserTimezones(
+  subs: { user_id: string; timezone: string | null }[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const s of subs) {
+    const current = map.get(s.user_id);
+    if (current === undefined || (current === "UTC" && s.timezone && s.timezone !== "UTC")) {
+      map.set(s.user_id, s.timezone ?? "UTC");
+    }
+  }
+  return map;
+}
+
 function initVapid() {
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT!,

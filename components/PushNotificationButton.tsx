@@ -33,9 +33,24 @@ export default function PushNotificationButton() {
     if (Notification.permission === "denied") { setState("denied"); return; }
 
     navigator.serviceWorker.ready.then((reg) =>
-      reg.pushManager.getSubscription().then((sub) =>
-        setState(sub ? "subscribed" : "unsubscribed"),
-      ),
+      reg.pushManager.getSubscription().then((sub) => {
+        setState(sub ? "subscribed" : "unsubscribed");
+        // Self-heal: re-save this device's timezone. Rows from before the
+        // timezone column (or from moved devices) read as UTC, which made
+        // notification times render in UTC instead of local time.
+        const keys = sub?.toJSON().keys;
+        if (sub && keys?.p256dh && keys?.auth) {
+          fetch("/api/push/subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              endpoint: sub.endpoint,
+              keys: { p256dh: keys.p256dh, auth: keys.auth },
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            }),
+          }).catch(() => {});
+        }
+      }),
     );
   }, []);
 
