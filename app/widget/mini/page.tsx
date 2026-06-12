@@ -1,76 +1,26 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { Mic, Check } from "lucide-react";
+import { Mic, Check, LogIn } from "lucide-react";
 import { toast, Toaster } from "sonner";
-import { createSupabaseBrowser } from "@/lib/supabase/client";
-
-type Phase = "idle" | "listening" | "processing";
-type SlimTask = { id: string; title: string; due_date: string | null };
+import { openMainApp } from "@/lib/electron-api";
+import { useWidgetTasks } from "@/lib/useWidgetTasks";
+import { useVoiceRecorder } from "@/lib/useVoiceRecorder";
+import { isOverdue } from "@/lib/widget-dates";
 
 export default function MiniWidget() {
-  const [tasks, setTasks] = useState<SlimTask[]>([]);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const sb = createSupabaseBrowser();
+  const { tasks, auth, load, complete } = useWidgetTasks({ urgentOnly: true, limit: 10 });
+  const { phase, toggle } = useVoiceRecorder(
+    (j) => { if (j.tasks?.length) toast.success(`+${j.tasks.length} added`); load(); },
+    (msg) => toast.error(msg),
+  );
 
-  async function load() {
-    const { data: { user } } = await sb.auth.getUser();
-    if (!user) return;
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-    const { data } = await sb.from("tasks")
-      .select("id, title, due_date")
-      .eq("user_id", user.id).eq("completed", false)
-      .or(`due_date.is.null,due_date.lt.${tomorrow}`)
-      .order("due_date", { ascending: true, nullsFirst: false })
-      .limit(10);
-    setTasks(data ?? []);
+  const signedOut = auth === "signedOut";
+  const overdueTasks = tasks.filter(t => isOverdue(t.due_date));
+  const topTask = overdueTasks[0] ?? tasks[0];
+  const topOverdue = topTask ? isOverdue(topTask.due_date) : false;
+
+  async function handleComplete(id: string) {
+    if (!(await complete(id))) toast.error("Couldn't complete — try again");
   }
-
-  useEffect(() => {
-    load();
-    const ch = sb.channel("mini-rt")
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => load())
-      .subscribe();
-    return () => { sb.removeChannel(ch); };
-  }, []);
-
-  async function complete(id: string) {
-    setTasks(t => t.filter(x => x.id !== id));
-    await sb.from("tasks").update({ completed: true }).eq("id", id);
-  }
-
-  async function startRecording() {
-    if (phase !== "idle") return;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""].find(m => m === "" || MediaRecorder.isTypeSupported(m)) ?? "";
-    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
-    chunksRef.current = [];
-    rec.ondataavailable = e => e.data.size && chunksRef.current.push(e.data);
-    rec.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      setPhase("processing");
-      const ext = mime.includes("mp4") ? "mp4" : "webm";
-      const fd = new FormData();
-      fd.append("audio", new File(chunksRef.current, `r.${ext}`, { type: mime }));
-      fd.append("utcOffset", String(-new Date().getTimezoneOffset()));
-      fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
-      try {
-        const res = await fetch("/api/process-voice", { method: "POST", body: fd });
-        const j = await res.json();
-        if (j.tasks?.length) { toast.success(`+${j.tasks.length} added`); load(); }
-      } catch { toast.error("Error"); }
-      setPhase("idle");
-    };
-    rec.start(); recorderRef.current = rec; setPhase("listening");
-  }
-
-  function stopRecording() { recorderRef.current?.stop(); recorderRef.current = null; }
-
-  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
-  const overdue = tasks.filter(t => t.due_date && new Date(t.due_date) < todayStart);
-  const topTask = overdue[0] ?? tasks[0];
-  const isOverdue = topTask?.due_date && new Date(topTask.due_date) < todayStart;
 
   return (
     <div className="w-full h-screen flex items-center select-none px-1.5" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
@@ -86,7 +36,7 @@ export default function MiniWidget() {
         {/* Top row */}
         <div className="flex items-center gap-2.5 px-3 pt-2.5 pb-2" style={{ WebkitAppRegion: "drag" } as React.CSSProperties}>
           <button
-            onClick={phase === "listening" ? stopRecording : startRecording}
+            onClick={signedOut ? openMainApp : toggle}
             disabled={phase === "processing"}
             style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
             className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-all relative
@@ -95,37 +45,46 @@ export default function MiniWidget() {
             {phase === "listening" && <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-30" />}
             {phase === "processing"
               ? <div className="w-3.5 h-3.5 border-2 border-white/40 dark:border-black/30 border-t-white dark:border-t-black rounded-full animate-spin" />
+              : signedOut
+              ? <LogIn className="w-4 h-4 text-white dark:text-black" />
               : <Mic className={`w-4 h-4 ${phase === "listening" ? "text-white" : "text-white dark:text-black"}`} />}
           </button>
 
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-semibold text-black/50 dark:text-white/40 leading-none mb-0.5">
-              {phase === "listening" ? "Listening…" : phase === "processing" ? "Processing…" : "JustDilo"}
+              {signedOut ? "JustDilo" :
+               phase === "listening" ? "Listening…" :
+               phase === "processing" ? "Processing…" :
+               phase === "error" ? "Try again" : "JustDilo"}
             </p>
-            {topTask && phase === "idle" && (
-              <p className={`text-[12px] font-[500] leading-tight truncate ${isOverdue ? "text-red-500" : "text-black/75 dark:text-white/75"}`}>
-                {isOverdue && "⚠ "}{topTask.title}
+            {signedOut ? (
+              <p className="text-[12px] font-[500] leading-tight text-black/60 dark:text-white/60">
+                Sign in to see your tasks
+              </p>
+            ) : topTask && phase === "idle" && (
+              <p className={`text-[12px] font-[500] leading-tight truncate ${topOverdue ? "text-red-500" : "text-black/75 dark:text-white/75"}`}>
+                {topOverdue && "⚠ "}{topTask.title}
               </p>
             )}
           </div>
 
-          {tasks.length > 1 && (
+          {!signedOut && tasks.length > 1 && (
             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 leading-none
-              ${overdue.length > 0 ? "bg-red-500/15 text-red-500" : "bg-black/7 text-black/35 dark:bg-white/8 dark:text-white/40"}`}>
+              ${overdueTasks.length > 0 ? "bg-red-500/15 text-red-500" : "bg-black/7 text-black/35 dark:bg-white/8 dark:text-white/40"}`}>
               {tasks.length}
             </span>
           )}
         </div>
 
         {/* Next 2 tasks */}
-        {tasks.length > 0 && phase === "idle" && (
+        {!signedOut && tasks.length > 0 && phase === "idle" && (
           <div className="px-3 pb-2.5 space-y-0.5">
             {tasks.slice(0, 2).map(t => {
-              const od = t.due_date && new Date(t.due_date) < todayStart;
+              const od = isOverdue(t.due_date);
               return (
                 <div key={t.id} className="flex items-center gap-2 group">
                   <button
-                    onClick={() => complete(t.id)}
+                    onClick={() => handleComplete(t.id)}
                     className={`w-3.5 h-3.5 rounded-full border shrink-0 flex items-center justify-center transition-all
                       ${od ? "border-red-400/60" : "border-black/15 dark:border-white/15"} hover:border-green-500 hover:bg-green-50/50`}
                   >

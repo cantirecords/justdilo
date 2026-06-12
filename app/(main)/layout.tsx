@@ -3,7 +3,7 @@ import { Toaster } from "sonner";
 import ElectronNotifier from "@/components/ElectronNotifier";
 import SwUpdater from "@/components/SwUpdater";
 import { FeaturesProvider } from "@/lib/features";
-import "./globals.css";
+import "../globals.css";
 
 export const metadata: Metadata = {
   title: "JustDilo — speak it, done.",

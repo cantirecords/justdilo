@@ -1,144 +1,49 @@
 "use client";
-import { useEffect, useRef, useState, useCallback } from "react";
-import { Mic, Check, X, ListTodo } from "lucide-react";
-import { createSupabaseBrowser } from "@/lib/supabase/client";
-import { format, isToday, isPast } from "date-fns";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Mic, Check, X, ListTodo, LogIn } from "lucide-react";
+import { electronAPI, openMainApp } from "@/lib/electron-api";
+import { useWidgetTasks } from "@/lib/useWidgetTasks";
+import { useVoiceRecorder } from "@/lib/useVoiceRecorder";
+import { isDueNow, isOverdue, dueTime } from "@/lib/widget-dates";
 
-type Phase = "idle" | "listening" | "processing" | "done" | "error";
-type Mode  = "mic" | "focus";
-type SlimTask = { id: string; title: string; due_date: string | null };
-
-declare global {
-  interface Window {
-    electronAPI?: {
-      resizeWindow: (w: number, h: number) => Promise<void>;
-      switchWidget: (style: string) => Promise<void>;
-    };
-  }
-}
+type Mode = "mic" | "focus";
 
 const MIC_SIZE = 160;
-const TASK_ROW_H = 50;   // height per task row
-const FOCUS_CHROME = 96; // top controls + bottom row + padding
-
-function hasTime(due_date: string) { return due_date.includes("T"); }
-function isNow(due_date: string | null) {
-  if (!due_date || !hasTime(due_date)) return false;
-  const d = new Date(due_date);
-  return isPast(d) && isToday(d);
-}
-function isOverdueDay(due_date: string | null) {
-  if (!due_date) return false;
-  const d = new Date(due_date);
-  return isPast(d) && !isToday(d);
-}
-function taskTime(due_date: string) {
-  if (!hasTime(due_date)) return null;
-  return format(new Date(due_date), "h:mm a");
-}
 
 export default function MicWidget() {
-  const [phase, setPhase]     = useState<Phase>("idle");
   const [hovered, setHovered] = useState(false);
-  const [mode, setMode]       = useState<Mode>("mic");
-  const [tasks, setTasks]     = useState<SlimTask[]>([]);
-  const [tick, setTick]       = useState(0); // forces re-render every minute for NOW updates
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef   = useRef<Blob[]>([]);
-  const winW = useRef(MIC_SIZE);
+  const [mode, setMode] = useState<Mode>("mic");
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
-  const sb = createSupabaseBrowser();
+  const { tasks, auth, load, complete } = useWidgetTasks({ urgentOnly: true, limit: 6 });
+  const { phase, toggle } = useVoiceRecorder(() => load());
+  const signedOut = auth === "signedOut";
 
-  const loadTasks = useCallback(async () => {
-    const { data: { user } } = await sb.auth.getUser();
-    if (!user) return;
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-    const { data } = await sb.from("tasks")
-      .select("id, title, due_date")
-      .eq("user_id", user.id).eq("completed", false)
-      .or(`due_date.is.null,due_date.lt.${tomorrow}`)
-      .order("due_date", { ascending: true, nullsFirst: false })
-      .limit(6);
-    setTasks(data ?? []);
-  }, []);
-
-  useEffect(() => {
-    loadTasks();
-    const ch = sb.channel("mic-widget-rt")
-      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, () => loadTasks())
-      .subscribe();
-    // tick every minute to update NOW status
-    const interval = setInterval(() => setTick(t => t + 1), 60_000);
-    return () => { sb.removeChannel(ch); clearInterval(interval); };
-  }, []);
-
-  useEffect(() => { winW.current = window.innerWidth; }, []);
-
-  // When tasks load or mode changes, resize window to fit content
-  useEffect(() => {
+  // Focus mode: size the window to the actual rendered content. The old
+  // row-height formula overshot, leaving a tall invisible (but draggable)
+  // strip that blocked clicks on windows underneath the widget.
+  useLayoutEffect(() => {
     if (mode !== "focus") return;
-    const w = Math.max(winW.current, MIC_SIZE);
-    const taskCount = Math.max(1, Math.min(tasks.length, 5));
-    const h = FOCUS_CHROME + taskCount * TASK_ROW_H + 72; // +72 for mic circle
-    window.electronAPI?.resizeWindow(w, h);
-  }, [mode, tasks.length]);
+    const el = contentRef.current;
+    if (!el) return;
+    const w = Math.max(window.innerWidth, MIC_SIZE);
+    const h = Math.min(Math.max(el.offsetHeight + 16, 180), 600);
+    if (Math.abs(window.innerHeight - h) > 4) electronAPI()?.resizeWindow(w, h);
+  }, [mode, tasks.length, auth]);
 
   async function toggleMode() {
-    const next = mode === "mic" ? "focus" : "mic";
+    const next: Mode = mode === "mic" ? "focus" : "mic";
     setMode(next);
-    const w = Math.max(winW.current, MIC_SIZE);
     if (next === "mic") {
-      await window.electronAPI?.resizeWindow(w, w);
+      // Square window, preserving whatever width the user resized to.
+      const w = Math.max(window.innerWidth, MIC_SIZE);
+      await electronAPI()?.resizeWindow(w, w);
     }
-    winW.current = w;
   }
 
-  async function completeTask(id: string) {
-    setTasks(t => t.filter(x => x.id !== id));
-    await sb.from("tasks").update({ completed: true }).eq("id", id);
-  }
-
-  async function handleClick() {
-    if (phase === "listening") {
-      recorderRef.current?.stop();
-      recorderRef.current = null;
-      return;
-    }
-    if (phase !== "idle" && phase !== "error") return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", ""]
-        .find(m => m === "" || MediaRecorder.isTypeSupported(m)) ?? "";
-      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
-      chunksRef.current = [];
-      rec.ondataavailable = e => e.data.size && chunksRef.current.push(e.data);
-      rec.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        setPhase("processing");
-        const ext = mime.includes("mp4") ? "mp4" : "webm";
-        const fd = new FormData();
-        fd.append("audio", new File(chunksRef.current, `r.${ext}`, { type: mime }));
-        fd.append("utcOffset", String(-new Date().getTimezoneOffset()));
-        fd.append("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
-        try {
-          const res = await fetch("/api/process-voice", { method: "POST", body: fd });
-          const j = await res.json();
-          if (!res.ok) throw new Error(j.error || "Failed");
-          setPhase("done");
-          loadTasks();
-          setTimeout(() => setPhase("idle"), 1800);
-        } catch {
-          setPhase("error");
-          setTimeout(() => setPhase("idle"), 2000);
-        }
-      };
-      rec.start();
-      recorderRef.current = rec;
-      setPhase("listening");
-    } catch {
-      setPhase("error");
-      setTimeout(() => setPhase("idle"), 2000);
-    }
+  function handleClick() {
+    if (signedOut) { openMainApp(); return; }
+    toggle();
   }
 
   const bg =
@@ -203,8 +108,6 @@ export default function MicWidget() {
           width: "100vw", height: "100vh",
           display: "flex", flexDirection: "column",
           alignItems: "center", justifyContent: mode === "focus" ? "flex-start" : "center",
-          paddingTop: mode === "focus" ? 8 : 0,
-          gap: "clamp(4px, 2vh, 10px)",
           WebkitAppRegion: "drag",
           cursor: "grab",
           fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
@@ -212,158 +115,177 @@ export default function MicWidget() {
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        {/* Drag handle */}
-        <div style={{
-          display: "flex", gap: 4, alignItems: "center",
-          opacity: hovered ? 0.5 : 0.18, transition: "opacity 0.2s ease", pointerEvents: "none",
-        }}>
-          {[0,1,2,3,4].map(i => (
-            <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: "white" }} />
-          ))}
-        </div>
-
-        {/* Task list in focus mode */}
-        {mode === "focus" && (
-          <div
-            className="slide-down"
-            style={{
-              width: "calc(100vw - 20px)",
-              background: "rgba(255,255,255,0.06)",
-              border: "1px solid rgba(255,255,255,0.09)",
-              borderRadius: 16, padding: "10px 12px",
-              WebkitAppRegion: "no-drag",
-            } as React.CSSProperties}
-          >
-            {tasks.length === 0 ? (
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", textAlign: "center", padding: "4px 0" }}>
-                All done! 🎉
-              </p>
-            ) : tasks.map((t, i) => {
-              const now   = isNow(t.due_date);
-              const over  = isOverdueDay(t.due_date);
-              const time  = t.due_date ? taskTime(t.due_date) : null;
-              const color = over ? "#f87171" : now ? "#fb923c" : "rgba(255,255,255,0.85)";
-              return (
-                <div key={t.id} className="task-row">
-                  {/* NOW blink dot */}
-                  {now && (
-                    <span className="now-blink" style={{
-                      width: 6, height: 6, borderRadius: "50%", background: "#fb923c",
-                      flexShrink: 0, display: "inline-block",
-                    }} />
-                  )}
-                  {over && (
-                    <span style={{
-                      width: 6, height: 6, borderRadius: "50%", background: "#f87171",
-                      flexShrink: 0, display: "inline-block",
-                    }} />
-                  )}
-
-                  {/* Task title */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {t.title}
-                    </p>
-                    {time && (
-                      <p style={{ fontSize: 10, color: now ? "#fb923c" : over ? "#f87171" : "rgba(255,255,255,0.35)", marginTop: 1 }}>
-                        {now ? "NOW · " : ""}{time}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Complete button */}
-                  <button className="complete-btn" onClick={() => completeTask(t.id)}>
-                    <Check className="check-icon" style={{ width: 9, height: 9, color: "#4ade80" }} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Mic circle */}
-        <button
-          onClick={handleClick}
+        <div
+          ref={contentRef}
           style={{
-            WebkitAppRegion: "no-drag",
-            width: micSize, height: micSize,
-            borderRadius: "50%", border: "none",
-            cursor: phase === "processing" ? "wait" : "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            position: "relative",
-            background: bg, boxShadow: shadow,
-            transition: "background 0.25s ease, box-shadow 0.25s ease, transform 0.15s ease, width 0.2s ease, height 0.2s ease",
-            transform: hovered && phase === "idle" ? "scale(1.03)" : "scale(1)",
-            outline: "none", flexShrink: 0,
-          } as React.CSSProperties}
-          className={phase === "error" ? "shake" : ""}
+            display: "flex", flexDirection: "column", alignItems: "center",
+            paddingTop: mode === "focus" ? 8 : 0,
+            gap: "clamp(4px, 2vh, 10px)",
+            width: "100%",
+          }}
         >
-          {phase === "listening" && <>
-            <span className="ring1" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "rgba(239,68,68,0.3)" }} />
-            <span className="ring2" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "rgba(239,68,68,0.18)" }} />
-          </>}
-          {phase === "processing" && (
-            <span className="spin" style={{
-              width: "24%", height: "24%", borderRadius: "50%", display: "block",
-              border: "3px solid rgba(255,255,255,0.18)", borderTopColor: "rgba(255,255,255,0.9)",
-            }} />
-          )}
-          {phase === "done"  && <Check className="pop" style={{ width: "30%", height: "30%", color: "white", strokeWidth: 2.5 }} />}
-          {phase === "error" && <X style={{ width: "28%", height: "28%", color: "white", strokeWidth: 2.5 }} />}
-          {(phase === "idle" || phase === "listening") && (
-            <Mic style={{
-              width: "30%", height: "30%", color: "white", strokeWidth: 2,
-              filter: phase === "listening" ? "drop-shadow(0 0 6px rgba(255,255,255,0.6))" : "none",
-              transition: "filter 0.2s",
-            }} />
-          )}
-          {phase === "listening" && mode !== "focus" && (
-            <span style={{
-              position: "absolute", bottom: "14%", fontSize: "clamp(0px, 3vmin, 11px)",
-              color: "rgba(255,255,255,0.75)", fontWeight: 500, letterSpacing: "0.05em", pointerEvents: "none",
-            }}>
-              tap to stop
-            </span>
-          )}
-        </button>
-
-        {/* Bottom row */}
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          width: "calc(100vw - 20px)", WebkitAppRegion: "no-drag",
-        } as React.CSSProperties}>
+          {/* Drag handle */}
           <div style={{
-            fontSize: "clamp(0px, 2.2vmin, 10px)", color: "rgba(255,255,255,0.3)",
-            fontWeight: 500, letterSpacing: "0.06em", pointerEvents: "none",
-            height: "clamp(0px, 3vmin, 14px)", display: "flex", alignItems: "center",
+            display: "flex", gap: 4, alignItems: "center",
+            opacity: hovered ? 0.5 : 0.18, transition: "opacity 0.2s ease", pointerEvents: "none",
           }}>
-            {phase === "done"  ? "✓ saved" :
-             phase === "error" ? "try again" :
-             phase === "idle" && hovered ? (mode === "focus" ? "jd" : "click to speak") : ""}
+            {[0,1,2,3,4].map(i => (
+              <div key={i} style={{ width: 4, height: 4, borderRadius: "50%", background: "white" }} />
+            ))}
           </div>
 
+          {/* Task list in focus mode */}
+          {mode === "focus" && (
+            <div
+              className="slide-down"
+              style={{
+                width: "calc(100vw - 20px)",
+                background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.09)",
+                borderRadius: 16, padding: "10px 12px",
+                WebkitAppRegion: "no-drag",
+              } as React.CSSProperties}
+            >
+              {signedOut ? (
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", textAlign: "center", padding: "4px 0" }}>
+                  Sign in to see tasks
+                </p>
+              ) : tasks.length === 0 ? (
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.3)", textAlign: "center", padding: "4px 0" }}>
+                  All done! 🎉
+                </p>
+              ) : tasks.map(t => {
+                const now   = isDueNow(t.due_date);
+                const over  = isOverdue(t.due_date);
+                const time  = t.due_date ? dueTime(t.due_date) : null;
+                const color = over ? "#f87171" : now ? "#fb923c" : "rgba(255,255,255,0.85)";
+                return (
+                  <div key={t.id} className="task-row">
+                    {/* NOW blink dot */}
+                    {now && (
+                      <span className="now-blink" style={{
+                        width: 6, height: 6, borderRadius: "50%", background: "#fb923c",
+                        flexShrink: 0, display: "inline-block",
+                      }} />
+                    )}
+                    {over && (
+                      <span style={{
+                        width: 6, height: 6, borderRadius: "50%", background: "#f87171",
+                        flexShrink: 0, display: "inline-block",
+                      }} />
+                    )}
+
+                    {/* Task title */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 600, color, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {t.title}
+                      </p>
+                      {(time || over) && (
+                        <p style={{ fontSize: 10, color: now ? "#fb923c" : over ? "#f87171" : "rgba(255,255,255,0.35)", marginTop: 1 }}>
+                          {over ? "overdue" : now ? `NOW · ${time}` : time}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Complete button */}
+                    <button className="complete-btn" onClick={() => complete(t.id)}>
+                      <Check className="check-icon" style={{ width: 9, height: 9, color: "#4ade80" }} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Mic circle */}
           <button
-            onClick={toggleMode}
-            title={mode === "focus" ? "Mic only" : "Focus mode"}
+            onClick={handleClick}
             style={{
-              background: mode === "focus" ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.07)",
-              border: "none", borderRadius: 8, width: 24, height: 24,
+              WebkitAppRegion: "no-drag",
+              width: micSize, height: micSize,
+              borderRadius: "50%", border: "none",
+              cursor: phase === "processing" ? "wait" : "pointer",
               display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", transition: "background 0.2s", opacity: hovered ? 1 : 0.45,
               position: "relative",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
-            onMouseLeave={e => (e.currentTarget.style.background = mode === "focus" ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.07)")}
+              background: bg, boxShadow: shadow,
+              transition: "background 0.25s ease, box-shadow 0.25s ease, transform 0.15s ease, width 0.2s ease, height 0.2s ease",
+              transform: hovered && phase === "idle" ? "scale(1.03)" : "scale(1)",
+              outline: "none", flexShrink: 0,
+            } as React.CSSProperties}
+            className={phase === "error" ? "shake" : ""}
           >
-            <ListTodo style={{ width: 12, height: 12, color: mode === "focus" ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)" }} />
-            {/* Badge: tasks with NOW */}
-            {mode !== "focus" && tasks.some(t => isNow(t.due_date)) && (
-              <span className="now-blink" style={{
-                position: "absolute", top: 3, right: 3,
-                width: 5, height: 5, borderRadius: "50%", background: "#fb923c",
+            {phase === "listening" && <>
+              <span className="ring1" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "rgba(239,68,68,0.3)" }} />
+              <span className="ring2" style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "rgba(239,68,68,0.18)" }} />
+            </>}
+            {phase === "processing" && (
+              <span className="spin" style={{
+                width: "24%", height: "24%", borderRadius: "50%", display: "block",
+                border: "3px solid rgba(255,255,255,0.18)", borderTopColor: "rgba(255,255,255,0.9)",
               }} />
             )}
+            {phase === "done"  && <Check className="pop" style={{ width: "30%", height: "30%", color: "white", strokeWidth: 2.5 }} />}
+            {phase === "error" && <X style={{ width: "28%", height: "28%", color: "white", strokeWidth: 2.5 }} />}
+            {(phase === "idle" || phase === "listening") && (
+              signedOut ? (
+                <LogIn style={{ width: "26%", height: "26%", color: "white", strokeWidth: 2 }} />
+              ) : (
+                <Mic style={{
+                  width: "30%", height: "30%", color: "white", strokeWidth: 2,
+                  filter: phase === "listening" ? "drop-shadow(0 0 6px rgba(255,255,255,0.6))" : "none",
+                  transition: "filter 0.2s",
+                }} />
+              )
+            )}
+            {phase === "listening" && mode !== "focus" && (
+              <span style={{
+                position: "absolute", bottom: "14%", fontSize: "clamp(0px, 3vmin, 11px)",
+                color: "rgba(255,255,255,0.75)", fontWeight: 500, letterSpacing: "0.05em", pointerEvents: "none",
+              }}>
+                tap to stop
+              </span>
+            )}
           </button>
+
+          {/* Bottom row */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            width: "calc(100vw - 20px)", WebkitAppRegion: "no-drag",
+          } as React.CSSProperties}>
+            <div style={{
+              fontSize: "clamp(0px, 2.2vmin, 10px)", color: "rgba(255,255,255,0.3)",
+              fontWeight: 500, letterSpacing: "0.06em", pointerEvents: "none",
+              height: "clamp(0px, 3vmin, 14px)", display: "flex", alignItems: "center",
+            }}>
+              {phase === "done"  ? "✓ saved" :
+               phase === "error" ? "try again" :
+               signedOut && hovered ? "sign in" :
+               phase === "idle" && hovered ? (mode === "focus" ? "jd" : "click to speak") : ""}
+            </div>
+
+            <button
+              onClick={toggleMode}
+              title={mode === "focus" ? "Mic only" : "Focus mode"}
+              style={{
+                background: mode === "focus" ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.07)",
+                border: "none", borderRadius: 8, width: 24, height: 24,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer", transition: "background 0.2s", opacity: hovered ? 1 : 0.45,
+                position: "relative",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.2)")}
+              onMouseLeave={e => (e.currentTarget.style.background = mode === "focus" ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.07)")}
+            >
+              <ListTodo style={{ width: 12, height: 12, color: mode === "focus" ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.5)" }} />
+              {/* Badge: tasks due NOW */}
+              {mode !== "focus" && tasks.some(t => isDueNow(t.due_date)) && (
+                <span className="now-blink" style={{
+                  position: "absolute", top: 3, right: 3,
+                  width: 5, height: 5, borderRadius: "50%", background: "#fb923c",
+                }} />
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
